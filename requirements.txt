@@ -1,0 +1,26 @@
+# Core dependencies
+streamlit>=1.31.0
+pandas>=2.0.0
+numpy>=1.24.0
+yfinance>=0.2.36
+
+# Gemini AI
+google-genai>=0.2.0
+
+# Visualization
+plotly>=5.18.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+streamlit-autorefresh>=1.0.1
+
+# Data validation
+pydantic>=2.5.0
+
+# Backtesting
+backtesting>=0.3.3
+pandas_ta>=0.3.14b0
+
+# News APIs (optional)
+newsapi-python>=0.2.7
