@@ -16,6 +16,14 @@ class PortfolioDB:
         self.conn = None
         self.init_database()
     
+    @staticmethod
+    def _rows_to_dicts(cursor, rows=None) -> List[Dict]:
+        """Convert cursor rows into a list of dicts using column names."""
+        columns = [desc[0] for desc in cursor.description]
+        if rows is None:
+            rows = cursor.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
+    
     def init_database(self):
         """Create database tables if they don't exist."""
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -169,16 +177,7 @@ class PortfolioDB:
         
         row = cursor.fetchone()
         if row:
-            return {
-                'id': row[0],
-                'symbol': row[1],
-                'shares': row[2],
-                'avg_buy_price': row[3],
-                'purchase_date': row[4],
-                'notes': row[5],
-                'created_at': row[6],
-                'updated_at': row[7]
-            }
+            return self._rows_to_dicts(cursor, [row])[0]
         return None
     
     def get_all_positions(self) -> List[Dict]:
@@ -189,20 +188,7 @@ class PortfolioDB:
             FROM portfolio ORDER BY symbol
         """)
         
-        positions = []
-        for row in cursor.fetchall():
-            positions.append({
-                'id': row[0],
-                'symbol': row[1],
-                'shares': row[2],
-                'avg_buy_price': row[3],
-                'purchase_date': row[4],
-                'notes': row[5],
-                'created_at': row[6],
-                'updated_at': row[7]
-            })
-        
-        return positions
+        return self._rows_to_dicts(cursor)
     
     def get_portfolio_symbols(self) -> List[str]:
         """Get list of all symbols in portfolio."""
@@ -249,21 +235,7 @@ class PortfolioDB:
                 LIMIT ?
             """, (limit,))
         
-        transactions = []
-        for row in cursor.fetchall():
-            transactions.append({
-                'id': row[0],
-                'symbol': row[1],
-                'transaction_type': row[2],
-                'shares': row[3],
-                'price': row[4],
-                'total_value': row[5],
-                'transaction_date': row[6],
-                'notes': row[7],
-                'created_at': row[8]
-            })
-        
-        return transactions
+        return self._rows_to_dicts(cursor)
     
     # Signal History Management
     def save_signal(self, symbol: str, signal_type: str, confidence: float,
@@ -345,26 +317,7 @@ class PortfolioDB:
         
         cursor.execute(query, params)
         
-        signals = []
-        for row in cursor.fetchall():
-            signals.append({
-                'id': row[0],
-                'symbol': row[1],
-                'signal_type': row[2],
-                'confidence': row[3],
-                'entry_price': row[4],
-                'target_price': row[5],
-                'stop_loss': row[6],
-                'reasoning': row[7],
-                'signal_date': row[8],
-                'status': row[9],
-                'closed_date': row[10],
-                'actual_exit_price': row[11],
-                'profit_loss': row[12],
-                'created_at': row[13]
-            })
-        
-        return signals
+        return self._rows_to_dicts(cursor)
     
     # Analytics
     def get_portfolio_summary(self, current_prices: Dict[str, float]) -> Dict:

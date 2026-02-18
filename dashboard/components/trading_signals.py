@@ -15,7 +15,7 @@ def render_trading_signals(services, selected_symbol, watchlist=None):
     st.header("🎯 Swing Trading Recommendations")
     
     # Add toggle for portfolio-only signals
-    show_portfolio_only = st.checkbox("💼 Show signals for my portfolio only", value=False)
+    show_portfolio_only = st.checkbox("💼 Show signals for my portfolio only", value=False, key="trading_signals_portfolio_only")
     
     # Determine which symbols to analyze
     if show_portfolio_only:
@@ -172,7 +172,7 @@ def render_trading_signals(services, selected_symbol, watchlist=None):
             st.markdown("---")
             st.subheader("📜 Signal History")
             
-            history_limit = st.slider("Number of signals to show", 5, 50, 20)
+            history_limit = st.slider("Number of signals to show", 5, 50, 20, key="trading_signals_history_limit")
             signal_history = services['portfolio'].get_signals(limit=history_limit)
             
             if signal_history:

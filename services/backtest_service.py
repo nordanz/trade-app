@@ -3,17 +3,17 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 import requests
-from uuid import uuid4
-from backtesting import Backtest, Strategy
+from backtesting import Backtest
+from services.strategies import get_strategy
 from config.settings import settings
 
 
 @dataclass
 class Trade:
-    """Represents a completed trade."""
+    """Represents a single executed trade from a backtest."""
     entry_date: str
     exit_date: str
     symbol: str
@@ -23,40 +23,9 @@ class Trade:
     profit_loss: float
     profit_loss_pct: float
     return_pct: float
-    trade_type: str  # BUY/SELL
+    trade_type: str = "BUY"
     sentiment_score: float = 0.0
     notes: str = ""
-
-
-class BaseRSIMAStrategy(Strategy):
-    """Base backtesting.py strategy for RSI + MA swing trades."""
-
-    rsi_oversold = 30
-    rsi_overbought = 70
-    use_sentiment = True
-    sentiment_threshold = -0.3
-    sentiment_score = 0.0
-
-    def init(self):
-        self.sentiment_score = getattr(self.__class__, "sentiment_score", 0.0)
-
-    def next(self):
-        rsi = self.data.RSI[-1]
-        ma_short = self.data.MA_Short[-1]
-        ma_long = self.data.MA_Long[-1]
-
-        if pd.isna(rsi) or pd.isna(ma_short) or pd.isna(ma_long):
-            return
-
-        if not self.position:
-            buy_signal = rsi < self.rsi_oversold and ma_short > ma_long
-            if buy_signal:
-                if self.use_sentiment and self.sentiment_score < self.sentiment_threshold:
-                    return
-                self.buy()
-        else:
-            if rsi > self.rsi_overbought or ma_short < ma_long:
-                self.position.close()
 
 
 class BacktestService:
@@ -197,7 +166,7 @@ class BacktestService:
             sentiment = self.get_news_sentiment(symbol)
             sentiment_score = sentiment.get('sentiment_score', 0.0)
 
-        market_df = df[['Open', 'High', 'Low', 'Close', 'Volume', 'RSI', 'MA_Short', 'MA_Long']].dropna()
+        market_df = df.copy()
 
         if market_df.empty or len(market_df) < max(rsi_period, ma_long):
             return {
@@ -207,15 +176,19 @@ class BacktestService:
                 'metrics': {}
             }
 
-        strategy_cls = self._build_strategy_class(
-            rsi_oversold, rsi_overbought,
-            use_sentiment, sentiment_threshold, sentiment_score
-        )
-
+        # Select strategy class based on symbol hint or default to swing
+        strategy_cls = get_strategy('vwap') if "day" in symbol.lower() else get_strategy('mean_reversion')
+        if strategy_cls is None:
+            strategy_cls = get_strategy('mean_reversion')
+        
         backtest = Backtest(market_df, strategy_cls, cash=10000, exclusive_orders=True)
 
         try:
-            result = backtest.run()
+            # Pass news parameters to the strategy
+            result = backtest.run(
+                sentiment_score=sentiment_score,
+                news_relevance=sentiment.get('relevance', 50) if sentiment else 50
+            )
         except Exception as exc:
             return {
                 'status': 'ERROR',
@@ -355,17 +328,3 @@ class BacktestService:
                 'balance': float(row.Equity)
             })
         return curve
-
-    def _build_strategy_class(self, rsi_oversold: int, rsi_overbought: int,
-                              use_sentiment: bool, sentiment_threshold: float,
-                              sentiment_score: float) -> Strategy:
-        """Create a dynamic strategy subclass so thresholds can be configured per run."""
-        attrs = {
-            'rsi_oversold': rsi_oversold,
-            'rsi_overbought': rsi_overbought,
-            'use_sentiment': use_sentiment,
-            'sentiment_threshold': sentiment_threshold,
-            'sentiment_score': sentiment_score
-        }
-        class_name = f"RSIMAStrategy_{uuid4().hex}"
-        return type(class_name, (BaseRSIMAStrategy,), attrs)

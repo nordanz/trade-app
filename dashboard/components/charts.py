@@ -13,7 +13,7 @@ def render_detailed_charts(services, watchlist):
     if not watchlist:
         st.info("Add stocks to your watchlist to see charts")
     else:
-        selected_symbol = st.selectbox("Select Stock:", watchlist)
+        selected_symbol = st.selectbox("Select Stock:", watchlist, key="charts_symbol_select")
         
         if selected_symbol:
             with st.spinner(f"Loading chart for {selected_symbol}..."):

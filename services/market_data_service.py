@@ -1,5 +1,6 @@
 """Market data service for fetching live stock data."""
 
+import logging
 import yfinance as yf
 import pandas as pd
 from typing import Optional, Dict
@@ -8,14 +9,15 @@ from models.stock_data import StockData
 from utils.indicators import calculate_moving_averages
 from config.settings import settings
 
+logger = logging.getLogger(__name__)
+
 
 class MarketDataService:
     """Service for fetching and processing market data."""
     
     def __init__(self):
         """Initialize market data service."""
-        self.cache = {}
-        self.cache_timeout = 60  # seconds
+        pass
     
     def get_stock_data(self, symbol: str) -> Optional[StockData]:
         """
@@ -37,7 +39,7 @@ class MarketDataService:
             hist = ticker.history(period="1d")
             
             if hist.empty:
-                print(f"No data available for {symbol}")
+                logger.warning("No data available for %s", symbol)
                 return None
             
             # Get latest price data
@@ -77,7 +79,7 @@ class MarketDataService:
             return stock_data
             
         except Exception as e:
-            print(f"Error fetching data for {symbol}: {str(e)}")
+            logger.error("Error fetching data for %s: %s", symbol, e)
             return None
     
     def get_historical_data(self, symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
@@ -97,7 +99,7 @@ class MarketDataService:
             hist = ticker.history(period=period, interval=interval)
             return hist
         except Exception as e:
-            print(f"Error fetching historical data for {symbol}: {str(e)}")
+            logger.error("Error fetching historical data for %s: %s", symbol, e)
             return pd.DataFrame()
     
     def get_multiple_stocks(self, symbols: list) -> Dict[str, StockData]:
@@ -141,7 +143,7 @@ class MarketDataService:
                 "country": info.get("country", "N/A")
             }
         except Exception as e:
-            print(f"Error fetching company info for {symbol}: {str(e)}")
+            logger.error("Error fetching company info for %s: %s", symbol, e)
             return {}
     
     def search_ticker(self, query: str) -> list:
@@ -176,5 +178,5 @@ class MarketDataService:
                 "timezone": info.get("timeZoneFullName", "America/New_York")
             }
         except Exception as e:
-            print(f"Error fetching market status: {str(e)}")
+            logger.error("Error fetching market status: %s", e)
             return {"is_open": False, "market_state": "UNKNOWN", "timezone": "Unknown"}

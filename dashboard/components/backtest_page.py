@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from utils.helpers import format_price, format_percentage
 
 
-def render_backtest_tab(services, watchlist):
+def render_backtest_page(services, watchlist):
     """Render the Backtest tab."""
     st.header("🧪 Backtest RSI + MA Strategy")
     st.info("Backtest a swing trading strategy (RSI + Moving Average) with optional news sentiment filtering.")
@@ -32,23 +32,23 @@ def render_backtest_tab(services, watchlist):
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        rsi_period = st.number_input("RSI Period", min_value=5, max_value=30, value=14)
+        rsi_period = st.number_input("RSI Period", min_value=5, max_value=30, value=14, key="backtest_rsi_period")
     with col2:
-        rsi_oversold = st.number_input("RSI Oversold", min_value=10, max_value=40, value=30)
+        rsi_oversold = st.number_input("RSI Oversold", min_value=10, max_value=40, value=30, key="backtest_rsi_oversold")
     with col3:
-        rsi_overbought = st.number_input("RSI Overbought", min_value=60, max_value=90, value=70)
+        rsi_overbought = st.number_input("RSI Overbought", min_value=60, max_value=90, value=70, key="backtest_rsi_overbought")
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        ma_short = st.number_input("Short MA Period", min_value=5, max_value=50, value=20)
+        ma_short = st.number_input("Short MA Period", min_value=5, max_value=50, value=20, key="backtest_ma_short")
     with col2:
-        ma_long = st.number_input("Long MA Period", min_value=50, max_value=200, value=50)
+        ma_long = st.number_input("Long MA Period", min_value=50, max_value=200, value=50, key="backtest_ma_long")
     with col3:
         st.metric("Strategy", "RSI + MA Crossover", "Swing Trading")
     
     # Sentiment filter
     st.subheader("📰 Sentiment Filter (Optional)")
-    use_sentiment = st.checkbox("Use news sentiment filter", value=True)
+    use_sentiment = st.checkbox("Use news sentiment filter", value=True, key="backtest_use_sentiment")
     
     if use_sentiment:
         sentiment_threshold = st.slider(
@@ -57,7 +57,8 @@ def render_backtest_tab(services, watchlist):
             max_value=1.0,
             value=-0.3,
             step=0.1,
-            help="Only enter BUY trades if news sentiment is above this threshold"
+            help="Only enter BUY trades if news sentiment is above this threshold",
+            key="backtest_sentiment_slider"
         )
     else:
         sentiment_threshold = -1.0

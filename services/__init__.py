@@ -11,5 +11,5 @@ __all__ = [
     "GeminiService",
     "TradingStrategyService",
     "PortfolioDB",
-    "BacktestService"
+    "BacktestService",
 ]

@@ -1,19 +1,47 @@
-# 📈 Stock Market Dashboard with AI-Powered Swing Trading
+# 📈 Stock Market Dashboard with AI-Powered Trading
 
-A comprehensive Python dashboard that provides live stock market data, AI-powered news analysis using Google's Gemini API, and intelligent swing trading recommendations.
+A comprehensive Python dashboard that provides live stock market data, AI-powered news analysis using Google's Gemini API, and intelligent trading recommendations across **6 built-in strategies**.
 
 ## 🌟 Features
 
 - **Live Market Data**: Real-time stock prices, volume, and key metrics
 - **Portfolio Management**: Track your holdings, shares, and P/L in real-time
 - **AI News Analysis**: Gemini-powered sentiment analysis and news summaries
-- **Swing Trading Signals**: Technical indicator-based buy/sell recommendations
-- **Personalized Recommendations**: Get signals specific to your portfolio
+- **6 Trading Strategies**: 3 day trading + 3 swing trading strategies
+- **Backtesting Engine**: Test strategies against historical data
+- **News Impact Controller**: Tune how news sentiment affects signals
 - **Interactive Charts**: Beautiful visualizations with Plotly
-- **Multi-Stock Support**: Track multiple tickers simultaneously
+- **Beginner's Guide**: In-app learning tab for new traders
+- **Multi-Stock Scanner**: Scan watchlists for opportunities
 - **Transaction History**: Complete audit trail of all trades
 - **Performance Analytics**: Win rate, avg returns, and more
 - **Auto-Refresh**: Real-time updates of market data
+
+## 📊 Trading Strategies
+
+### Day Trading (Intraday — positions closed by EOD)
+
+| Strategy | Key Idea | Entry Signal | Best For |
+|----------|----------|-------------|----------|
+| **VWAP** | Trade around Volume Weighted Average Price | Price crosses VWAP with volume confirmation | Liquid large-caps with intraday volatility |
+| **Opening Range Breakout (ORB)** | Trade the break of the first 30-min range | Price breaks above/below opening range with volume | Stocks with strong morning momentum |
+| **Momentum / Gap-and-Go** | Ride gap openings with follow-through | Gap >2% + RSI/MACD momentum confirmation | Earnings plays, catalyst-driven gaps |
+
+### Swing Trading (Multi-day — hold 3–7+ days)
+
+| Strategy | Key Idea | Entry Signal | Best For |
+|----------|----------|-------------|----------|
+| **Mean Reversion (Bollinger Bands)** | Buy low / sell high within a range | Price at BB extreme + RSI oversold/overbought | Range-bound stocks with clear support/resistance |
+| **Fibonacci Retracement** | Enter on pullbacks within a trend | Price retraces to 38.2%, 50%, or 61.8% Fib level | Trending stocks with clear swing highs/lows |
+| **Breakout Trading** | Enter on confirmed breakouts | Price breaks support/resistance + volume spike + ADX >25 | Consolidating stocks before big moves |
+
+### Signal Generation Pipeline
+
+Every signal goes through three layers:
+
+1. **Core Technical Indicators** — RSI, MACD, Bollinger Bands, trend detection
+2. **Strategy-Specific Logic** — VWAP proximity, Fib levels, breakout confirmation, etc.
+3. **News Sentiment Overlay** — Gemini AI sentiment score boosts or dampens signals
 
 ## 🚀 Quick Start
 
@@ -70,11 +98,21 @@ The dashboard will open in your browser at `http://localhost:8501`
 ```
 esignal/
 ├── config/           # Configuration and settings
-├── services/         # Core business logic services
-├── models/           # Data models
-├── utils/            # Helper functions and indicators
+├── services/         # Core business logic
+│   ├── market_data_service.py        # Live stock data (yfinance)
+│   ├── gemini_service.py             # AI news analysis (Gemini)
+│   ├── trading_strategy_service.py   # Signal generation engine
+│   ├── strategies.py                 # Strategy registry
+│   ├── day_trading_strategies.py     # VWAP, ORB, Momentum
+│   ├── swing_trading_strategies.py   # Mean Reversion, Fib, Breakout
+│   ├── backtest_service.py           # Backtesting engine
+│   └── portfolio_service.py          # Portfolio DB (SQLite)
+├── models/           # Data models (StockData, TradingSignal)
+├── utils/            # Technical indicators & helpers
 ├── dashboard/        # Streamlit UI
-└── tests/           # Unit tests
+│   ├── app.py                        # Main app with 10 tabs
+│   └── components/                   # One component per tab
+└── tests/            # Unit tests
 ```
 
 ## 🔧 Configuration
@@ -86,21 +124,26 @@ Edit `.env` file to customize:
 - `REFRESH_INTERVAL`: Dashboard refresh interval in seconds
 - `RSI_OVERSOLD/OVERBOUGHT`: RSI threshold values
 
-## 📈 Trading Strategy
+## 📈 How Signals Work
 
-The dashboard uses multiple technical indicators for swing trading:
+Each signal is scored on a point system combining multiple factors:
 
-- **RSI**: Identifies overbought/oversold conditions
-- **MACD**: Detects trend changes and momentum
-- **Bollinger Bands**: Measures volatility and price levels
-- **Moving Averages**: Shows trend direction and support/resistance
-- **Volume Analysis**: Confirms price movements
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| RSI | 2 pts | Oversold (<30) → BUY, Overbought (>70) → SELL |
+| MACD | 1 pt | Bullish/bearish crossover |
+| Strategy-specific | 2 pts | VWAP distance, Fib level, breakout, etc. |
+| Trend (swing only) | 1 pt | Daily uptrend/downtrend context |
+| News sentiment | 1-4 pts | AI-scored sentiment with relevance weighting |
 
-### Signal Generation
+**Confidence** = ratio of buy vs sell points, capped at 98%.
 
-- **BUY**: RSI < 30, MACD bullish crossover, volume spike
-- **SELL**: RSI > 70, MACD bearish crossover, resistance hit
-- **HOLD**: Mixed signals or neutral conditions
+### Risk Management
+
+- **Day trades**: Stop loss at 1× ATR, target at 1.5× ATR
+- **Swing trades**: Stop loss at 1.5× ATR, target at 3× ATR
+- **Minimum confidence**: 60% (configurable)
+- **Scanner filter**: Only surfaces signals above your threshold
 
 ## ⚠️ Disclaimer
 

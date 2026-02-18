@@ -1,11 +1,19 @@
-"""Trading strategy service for generating buy/sell signals."""
+"""Trading strategy service for generating buy/sell signals.
 
+Supports:
+- 3 Day Trading strategies (VWAP, ORB, Momentum)
+- 3 Swing Trading strategies (Mean Reversion, Fibonacci, Breakout)
+- Optional news sentiment integration
+"""
+
+import logging
 import pandas as pd
 from typing import Optional, Dict, List
 from models.trading_signal import TradingSignal, SignalType, NewsAnalysis
 from models.stock_data import StockData
 from services.market_data_service import MarketDataService
 from services.gemini_service import GeminiService
+from services.strategies import get_strategy, DAY_TRADING_STRATEGIES, SWING_TRADING_STRATEGIES
 from utils.indicators import (
     calculate_rsi,
     calculate_macd,
@@ -22,34 +30,58 @@ from utils.indicators import (
 )
 from config.settings import settings
 
+logger = logging.getLogger(__name__)
+
 
 class TradingStrategyService:
     """Service for generating trading signals and strategies."""
+    
+    # Map timeframes to appropriate data periods
+    TIMEFRAME_PERIOD_MAP = {
+        '1m': '1d',
+        '5m': '5d',
+        '15m': '5d',
+        '30m': '5d',
+        '1h': '30d',
+        '1d': '1y',
+    }
     
     def __init__(self):
         """Initialize trading strategy service."""
         self.market_service = MarketDataService()
         self.gemini_service = GeminiService()
     
-    def calculate_all_indicators(self, symbol: str) -> Optional[Dict]:
+    @staticmethod
+    def _last_value(series_or_val, key: str = None) -> Optional[float]:
+        """Safely extract the last numeric value from a Series or dict entry."""
+        try:
+            if key is not None:
+                series_or_val = series_or_val[key]
+            if hasattr(series_or_val, 'empty'):
+                return float(series_or_val.iloc[-1]) if not series_or_val.empty else None
+            return float(series_or_val) if series_or_val is not None else None
+        except (IndexError, KeyError, TypeError, ValueError):
+            return None
+    
+    def calculate_all_indicators(self, symbol: str, timeframe: str = "1d") -> Optional[Dict]:
         """
         Calculate all technical indicators for a symbol.
         
         Args:
             symbol: Stock ticker symbol
+            timeframe: Data timeframe ('1m', '5m', '1h', '1d')
         
         Returns:
             Dictionary with all indicators
         """
         try:
-            # Get historical data
+            period = self.TIMEFRAME_PERIOD_MAP.get(timeframe, '1y')
+            
             hist_data = self.market_service.get_historical_data(
-                symbol,
-                period=settings.HISTORICAL_PERIOD,
-                interval=settings.DATA_INTERVAL
+                symbol, period=period, interval=timeframe
             )
             
-            if hist_data.empty:
+            if hist_data is None or hist_data.empty:
                 return None
             
             close_prices = hist_data['Close']
@@ -68,17 +100,19 @@ class TradingStrategyService:
             pivots = calculate_pivot_points(hist_data)
             fibs = calculate_fibonacci_levels(hist_data)
             
-            indicators = {
-                "rsi": float(rsi.iloc[-1]) if not rsi.empty else None,
+            lv = self._last_value  # shorthand
+            
+            return {
+                "rsi": lv(rsi),
                 "macd": {
-                    "macd": float(macd_data['macd'].iloc[-1]) if not macd_data['macd'].empty else None,
-                    "signal": float(macd_data['signal'].iloc[-1]) if not macd_data['signal'].empty else None,
-                    "histogram": float(macd_data['histogram'].iloc[-1]) if not macd_data['histogram'].empty else None
+                    "macd": lv(macd_data, 'macd'),
+                    "signal": lv(macd_data, 'signal'),
+                    "histogram": lv(macd_data, 'histogram'),
                 },
                 "bollinger": {
-                    "upper": float(bollinger['upper'].iloc[-1]) if not bollinger['upper'].empty else None,
-                    "middle": float(bollinger['middle'].iloc[-1]) if not bollinger['middle'].empty else None,
-                    "lower": float(bollinger['lower'].iloc[-1]) if not bollinger['lower'].empty else None
+                    "upper": lv(bollinger, 'upper'),
+                    "middle": lv(bollinger, 'middle'),
+                    "lower": lv(bollinger, 'lower'),
                 },
                 "support": float(support) if support else None,
                 "resistance": float(resistance) if resistance else None,
@@ -86,25 +120,27 @@ class TradingStrategyService:
                 "volume": volume_data,
                 "golden_cross": golden,
                 "death_cross": death,
-                "atr": float(atr.iloc[-1]) if not atr.empty else None,
-                "vwap": float(vwap.iloc[-1]) if not vwap.empty else None,
+                "atr": lv(atr),
+                "vwap": lv(vwap),
                 "pivots": pivots,
-                "fibonacci": fibs
+                "fibonacci": fibs,
+                "timeframe": timeframe,
             }
             
-            return indicators
-            
         except Exception as e:
-            print(f"Error calculating indicators for {symbol}: {str(e)}")
+            logger.error("Error calculating indicators for %s: %s", symbol, e)
             return None
     
-    def generate_signal(self, symbol: str, strategy_type: str = "swing") -> Optional[TradingSignal]:
+    def generate_signal(self, symbol: str, strategy_name: str = "mean_reversion", 
+                       timeframe: str = "1d", include_news: bool = True) -> Optional[TradingSignal]:
         """
-        Generate trading signal for a symbol.
+        Generate trading signal for a symbol using specified strategy.
         
         Args:
             symbol: Stock ticker symbol
-            strategy_type: Type of strategy ("swing" or "day")
+            strategy_name: Strategy identifier (e.g., 'vwap', 'mean_reversion')
+            timeframe: Data timeframe ('1m', '5m', '1h', '1d')
+            include_news: Whether to include news sentiment analysis
         
         Returns:
             TradingSignal object or None
@@ -115,38 +151,48 @@ class TradingStrategyService:
             if not stock_data:
                 return None
             
+            # Determine strategy type from strategy name
+            if strategy_name in DAY_TRADING_STRATEGIES:
+                strategy_type = "day"
+            elif strategy_name in SWING_TRADING_STRATEGIES:
+                strategy_type = "swing"
+            else:
+                strategy_type = "swing"  # Default
+            
             # Calculate indicators
-            indicators = self.calculate_all_indicators(symbol)
+            indicators = self.calculate_all_indicators(symbol, timeframe)
             if not indicators:
                 return None
             
-            # Fetch news analysis for signal enhancement
+            # Fetch news analysis if enabled
             news_analysis = None
-            if self.gemini_service.is_available():
-                company_info = self.market_service.get_company_info(symbol)
-                news_analysis = self.gemini_service.analyze_stock_news(symbol, company_info.get('name', symbol))
+            if include_news and self.gemini_service.is_available():
+                try:
+                    company_info = self.market_service.get_company_info(symbol)
+                    news_analysis = self.gemini_service.analyze_stock_news(
+                        symbol, 
+                        company_info.get('name', symbol)
+                    )
+                except Exception as e:
+                    logger.warning("News analysis failed for %s: %s", symbol, e)
             
-            # Analyze signals
+            # Analyze signals based on strategy type
             signal_type, confidence, reasoning = self._analyze_signals(
-                stock_data, indicators, news_analysis, strategy_type
+                stock_data, indicators, news_analysis, strategy_type, strategy_name
             )
             
-            # Calculate entry/exit points
+            # Calculate entry/exit points based on strategy type
             entry_price = stock_data.current_price
-            
-            # Use ATR for volatility-based stops if available
             atr = indicators.get('atr', entry_price * 0.02)
             
             if strategy_type == "day":
-                # Day trading: tighter targets and stops
+                # Day trading: tighter targets and stops (1-3% moves)
                 target_mult = 1.5
                 stop_mult = 1.0
-                holding_period = "Intraday"
             else:
-                # Swing trading
+                # Swing trading: wider targets and stops (3-6% moves)
                 target_mult = 3.0
                 stop_mult = 1.5
-                holding_period = "3-7 days"
 
             if signal_type == SignalType.BUY:
                 target_price = entry_price + (atr * target_mult)
@@ -158,27 +204,6 @@ class TradingStrategyService:
                 target_price = entry_price
                 stop_loss = entry_price - (atr * stop_mult)
             
-            # Try to enhance with AI recommendation
-            if self.gemini_service.is_available():
-                try:
-                    ai_rec = self.gemini_service.get_trading_recommendation(
-                        symbol,
-                        stock_data.to_dict(),
-                        indicators
-                    )
-                    if ai_rec:
-                        # Use AI recommendation if confidence is higher
-                        ai_confidence = ai_rec.get('confidence', 0)
-                        if ai_confidence > confidence:
-                            signal_type = SignalType(ai_rec.get('signal', signal_type.value))
-                            confidence = ai_confidence
-                            reasoning = ai_rec.get('reasoning', reasoning)
-                            entry_price = ai_rec.get('entry_price', entry_price)
-                            target_price = ai_rec.get('target_price', target_price)
-                            stop_loss = ai_rec.get('stop_loss', stop_loss)
-                except Exception as e:
-                    print(f"AI recommendation failed: {str(e)}")
-            
             trading_signal = TradingSignal(
                 symbol=symbol,
                 signal=signal_type,
@@ -186,19 +211,21 @@ class TradingStrategyService:
                 entry_price=entry_price,
                 target_price=target_price,
                 stop_loss=stop_loss,
-                holding_period="3-7 days",
+                holding_period="Intraday" if strategy_type == "day" else "3-7 days",
                 reasoning=reasoning,
-                indicators=indicators
+                indicators=indicators,
+                news_analysis=news_analysis
             )
             
             return trading_signal
             
         except Exception as e:
-            print(f"Error generating signal for {symbol}: {str(e)}")
+            logger.error("Error generating signal for %s: %s", symbol, e)
             return None
     
     def _analyze_signals(self, stock_data: StockData, indicators: Dict, 
-                         news: Optional[NewsAnalysis] = None, strategy_type: str = "swing") -> tuple:
+                         news: Optional[NewsAnalysis] = None, strategy_type: str = "swing",
+                         strategy_name: str = "mean_reversion") -> tuple:
         """
         Analyze technical indicators to generate signal.
         
@@ -206,7 +233,8 @@ class TradingStrategyService:
             stock_data: Stock data
             indicators: Technical indicators
             news: Optional news analysis
-            strategy_type: Type of strategy to apply
+            strategy_type: Type of strategy ("day" or "swing")
+            strategy_name: Specific strategy name for detailed analysis
         
         Returns:
             Tuple of (signal_type, confidence, reasoning)
@@ -243,39 +271,76 @@ class TradingStrategyService:
         
         # 2. Strategy-Specific Logic
         if strategy_type == "day":
-            # VWAP Logic for Day Trading
-            vwap = indicators.get('vwap')
-            if vwap:
-                if current_price > vwap:
-                    buy_signals += 1
-                    reasons.append("Price above VWAP (Bullish)")
-                else:
-                    sell_signals += 1
-                    reasons.append("Price below VWAP (Bearish)")
+            # Day Trading Strategy Logic
+            if strategy_name == "vwap":
+                vwap = indicators.get('vwap')
+                if vwap and current_price > vwap:
+                    buy_signals += 2
+                    reasons.append(f"Price above VWAP (${vwap:.2f})")
+                elif vwap:
+                    sell_signals += 2
+                    reasons.append(f"Price below VWAP (${vwap:.2f})")
             
-            # Pivot Points
-            pivots = indicators.get('pivots', {})
-            if current_price < pivots.get('s1', 0):
-                buy_signals += 1
-                reasons.append("Price near Pivot S1 support")
-            elif current_price > pivots.get('r1', 0):
-                sell_signals += 1
-                reasons.append("Price near Pivot R1 resistance")
+            elif strategy_name == "orb":
+                # Opening Range Breakout logic
+                pivots = indicators.get('pivots', {})
+                if current_price > pivots.get('r1', 0):
+                    buy_signals += 2
+                    reasons.append("Above opening resistance (ORB)")
+                elif current_price < pivots.get('s1', 0):
+                    sell_signals += 2
+                    reasons.append("Below opening support (ORB)")
+            
+            elif strategy_name == "momentum":
+                # Momentum/Gap logic
+                if rsi and rsi > 60:
+                    buy_signals += 2
+                    reasons.append(f"Strong momentum (RSI {rsi:.0f})")
+                elif rsi and rsi < 40:
+                    sell_signals += 2
+                    reasons.append(f"Weak momentum (RSI {rsi:.0f})")
         
-        else: # Swing Trading
-            # Fibonacci Levels
-            fibs = indicators.get('fibonacci', {})
-            if abs(current_price - fibs.get('level_618', 0)) / current_price < 0.01:
-                buy_signals += 2
-                reasons.append("Fibonacci 61.8% retracement level")
+        else: 
+            # Swing Trading Strategy Logic
+            if strategy_name == "mean_reversion":
+                bollinger = indicators.get('bollinger', {})
+                bb_upper = bollinger.get('upper')
+                bb_lower = bollinger.get('lower')
+                bb_middle = bollinger.get('middle')
+                
+                if bb_upper and current_price >= bb_upper and rsi and rsi > 70:
+                    sell_signals += 2
+                    reasons.append("At Bollinger upper band (overbought)")
+                elif bb_lower and current_price <= bb_lower and rsi and rsi < 30:
+                    buy_signals += 2
+                    reasons.append("At Bollinger lower band (oversold)")
             
-            # Longer term trend
+            elif strategy_name == "fibonacci":
+                fibs = indicators.get('fibonacci', {})
+                # Check proximity to Fib levels
+                for level_name, level_price in fibs.items():
+                    if level_price and abs(current_price - level_price) / current_price < 0.02:
+                        if '618' in level_name or '500' in level_name:
+                            buy_signals += 2
+                            reasons.append(f"Fibonacci {level_name} retracement")
+            
+            elif strategy_name == "breakout":
+                support = indicators.get('support')
+                resistance = indicators.get('resistance')
+                if resistance and current_price > resistance * 1.01:
+                    buy_signals += 2
+                    reasons.append(f"Breakout above resistance (${resistance:.2f})")
+                elif support and current_price < support * 0.99:
+                    sell_signals += 2
+                    reasons.append(f"Breakdown below support (${support:.2f})")
+            
+            # Longer term trend context for swing trading
             if trend == "UPTREND":
                 buy_signals += 1
-                reasons.append("Daily uptrend")
+                reasons.append("In daily uptrend")
             elif trend == "DOWNTREND":
                 sell_signals += 1
-                reasons.append("Daily downtrend")
+                reasons.append("In daily downtrend")
 
         # 3. News & Noise Logic (Signal Override/Enhancement)
         if news:
@@ -286,11 +351,12 @@ class TradingStrategyService:
             weight = 1.0
             if relevance > 80:
                 weight = 2.0
-                reasons.append(f"High impact news: {news.headline}")
+                if news.headline:
+                    reasons.append(f"High impact news")
             
             if sentiment_score > 0.4:
                 buy_signals += int(2 * weight)
-                reasons.append(f"Positive sentiment ({sentiment_score:.2f})")
+                reasons.append(f"Positive sentiment (+{sentiment_score:.2f})")
             elif sentiment_score < -0.4:
                 sell_signals += int(2 * weight)
                 reasons.append(f"Negative sentiment ({sentiment_score:.2f})")
@@ -299,12 +365,12 @@ class TradingStrategyService:
             # might be a "buy the news" opportunity (divergence).
             if sentiment_score < -0.7 and stock_data.change_percent > 0:
                 buy_signals += 1
-                reasons.append("Sentiment/Price divergence (Noise filter)")
+                reasons.append("Sentiment/Price divergence (contrarian)")
 
         # Determine signal
         total_signals = buy_signals + sell_signals
         if total_signals == 0:
-            return SignalType.HOLD, 50.0, "Neutral technical/news state"
+            return SignalType.HOLD, 50.0, "No clear technical signals"
         
         if buy_signals > sell_signals:
             confidence = min(98, 50 + (buy_signals / (total_signals + 1)) * 50)
@@ -315,23 +381,67 @@ class TradingStrategyService:
         else:
             return SignalType.HOLD, 50.0, "Conflicting signals"
     
-    def get_signals_for_multiple_stocks(self, symbols: List[str], strategy_type: str = "swing") -> Dict[str, TradingSignal]:
+    def scan_multiple_symbols(self, symbols: List[str], strategy_name: str = "mean_reversion",
+                             timeframe: str = "1d", min_confidence: float = 65.0,
+                             include_news: bool = True) -> List[TradingSignal]:
         """
-        Generate signals for multiple stocks.
+        Scan multiple symbols for trading signals.
         
         Args:
             symbols: List of ticker symbols
-            strategy_type: Type of strategy
+            strategy_name: Strategy to apply
+            timeframe: Data timeframe
+            min_confidence: Minimum confidence threshold
+            include_news: Whether to include news analysis
+        
+        Returns:
+            List of trading signals above confidence threshold
+        """
+        signals = []
+        
+        for symbol in symbols:
+            try:
+                signal = self.generate_signal(
+                    symbol=symbol,
+                    strategy_name=strategy_name,
+                    timeframe=timeframe,
+                    include_news=include_news
+                )
+                
+                if signal and signal.confidence >= min_confidence:
+                    signals.append(signal)
+            except Exception as e:
+                logger.error("Error scanning %s: %s", symbol, e)
+                continue
+        
+        # Sort by confidence
+        signals.sort(key=lambda x: x.confidence, reverse=True)
+        
+        return signals
+    
+    def get_signals_for_multiple_stocks(self, symbols: List[str], strategy_name: str = "mean_reversion",
+                                       timeframe: str = "1d", include_news: bool = True) -> Dict[str, TradingSignal]:
+        """
+        Generate signals for multiple stocks.
+        
+        Convenience wrapper around scan_multiple_symbols that returns
+        a dict keyed by symbol with no confidence filter.
+        
+        Args:
+            symbols: List of ticker symbols
+            strategy_name: Strategy to apply
+            timeframe: Data timeframe
+            include_news: Whether to include news analysis
         
         Returns:
             Dictionary mapping symbols to trading signals
         """
-        signals = {}
-        for symbol in symbols:
-            signal = self.generate_signal(symbol, strategy_type=strategy_type)
-            if signal:
-                signals[symbol] = signal
-        return signals
+        signals = self.scan_multiple_symbols(
+            symbols, strategy_name=strategy_name,
+            timeframe=timeframe, min_confidence=0.0,
+            include_news=include_news
+        )
+        return {s.symbol: s for s in signals}
     
     def filter_top_opportunities(self, signals: Dict[str, TradingSignal], limit: int = 5) -> List[TradingSignal]:
         """

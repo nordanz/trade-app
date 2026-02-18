@@ -1,11 +1,14 @@
 """Gemini AI service for news analysis and insights."""
 
+import json
+import logging
 from google import genai
 from typing import Optional, List, Dict
 from datetime import datetime
 from models.trading_signal import NewsAnalysis, Sentiment
 from config.settings import settings
-import json
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-pro"
 
@@ -21,16 +24,39 @@ class GeminiService:
         if self.api_key:
             try:
                 self.client = genai.Client(api_key=self.api_key)
-                print("✅ Gemini AI initialized successfully")
+                logger.info("Gemini AI initialized successfully")
             except Exception as e:
-                print(f"❌ Error initializing Gemini: {str(e)}")
+                logger.error("Error initializing Gemini: %s", e)
                 self.client = None
         else:
-            print("⚠️  Gemini API key not configured")
+            logger.warning("Gemini API key not configured")
     
     def is_available(self) -> bool:
         """Check if Gemini service is available."""
         return self.client is not None
+    
+    def _generate_json(self, prompt: str) -> Optional[Dict]:
+        """Send a prompt to Gemini and parse the JSON response.
+        
+        Args:
+            prompt: The prompt to send
+            
+        Returns:
+            Parsed JSON dict, or None on failure
+        """
+        response = self.client.models.generate_content(
+            model=DEFAULT_GEMINI_MODEL,
+            contents=prompt
+        )
+        text = response.text.strip()
+        
+        # Strip markdown code fences
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        
+        return json.loads(text)
     
     def analyze_stock_news(self, symbol: str, company_name: str) -> Optional[NewsAnalysis]:
         """
@@ -61,21 +87,9 @@ Format your response as JSON:
     "macro_impact": true/false
 }}"""
             
-            response = self.client.models.generate_content(
-                model=DEFAULT_GEMINI_MODEL,
-                contents=prompt
-            )
-            text = response.text.strip()
+            data = self._generate_json(prompt)
             
-            # Try to extract JSON from response
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0].strip()
-            
-            data = json.loads(text)
-            
-            news = NewsAnalysis(
+            return NewsAnalysis(
                 symbol=symbol,
                 headline=data.get("headline", "Market Analysis"),
                 summary=data.get("summary", "No summary available"),
@@ -86,13 +100,10 @@ Format your response as JSON:
                 timestamp=datetime.now()
             )
             
-            return news
-            
         except json.JSONDecodeError:
-            # Fallback if JSON parsing fails
-            return self._fallback_news_analysis(symbol, response.text if 'response' in locals() else "")
+            return self._fallback_news_analysis(symbol, "")
         except Exception as e:
-            print(f"Error analyzing news for {symbol}: {str(e)}")
+            logger.error("Error analyzing news for %s: %s", symbol, e)
             return None
     
     def _fallback_news_analysis(self, symbol: str, text: str) -> NewsAnalysis:
@@ -172,23 +183,10 @@ Format as JSON:
     "reasoning": "..."
 }}"""
             
-            response = self.client.models.generate_content(
-                model=DEFAULT_GEMINI_MODEL,
-                contents=prompt
-            )
-            text = response.text.strip()
-            
-            # Extract JSON
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0].strip()
-            
-            recommendation = json.loads(text)
-            return recommendation
+            return self._generate_json(prompt)
             
         except Exception as e:
-            print(f"Error getting recommendation for {symbol}: {str(e)}")
+            logger.error("Error getting recommendation for %s: %s", symbol, e)
             return None
     
     def get_market_summary(self, stocks_data: List[Dict]) -> str:
@@ -225,7 +223,7 @@ Be concise and actionable."""
             return response.text.strip()
             
         except Exception as e:
-            print(f"Error generating market summary: {str(e)}")
+            logger.error("Error generating market summary: %s", e)
             return "Unable to generate market summary at this time."
     
     def explain_indicator(self, indicator_name: str, value: float) -> str:

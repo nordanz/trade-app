@@ -33,6 +33,7 @@ class TradingSignal:
     holding_period: str
     reasoning: str
     indicators: Dict[str, any]
+    news_analysis: Optional['NewsAnalysis'] = None
     timestamp: datetime = None
     
     def __post_init__(self):
@@ -68,6 +69,7 @@ class NewsAnalysis:
     sentiment_score: float  # -1 to 1
     relevance: float  # 0-100
     source: str
+    macro_impact: bool = False  # True if affects broader market
     timestamp: datetime = None
     
     def __post_init__(self):

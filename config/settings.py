@@ -1,10 +1,13 @@
 """Configuration settings for the Stock Market Dashboard."""
 
 import os
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class Settings:
@@ -39,7 +42,7 @@ class Settings:
     def validate(cls) -> bool:
         """Validate that required settings are present."""
         if not cls.GEMINI_API_KEY:
-            print("⚠️  Warning: GEMINI_API_KEY not set. AI features will be disabled.")
+            logger.warning("GEMINI_API_KEY not set. AI features will be disabled.")
             return False
         return True
 

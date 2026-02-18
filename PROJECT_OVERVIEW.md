@@ -2,55 +2,74 @@
 
 ## ✅ What Has Been Created
 
-A complete, production-ready stock market dashboard with the following components:
+A complete stock market dashboard with 6 trading strategies, AI-powered analysis, and a built-in beginner's guide.
 
 ### 📁 Project Structure
 ```
 esignal/
 ├── 📄 README.md                          # Main documentation
-├── 📄 DESIGN.md                          # Detailed design document
 ├── 📄 QUICKSTART.md                      # Quick start guide
+├── 📄 PROJECT_OVERVIEW.md                # This file
+├── 📄 BEGINNER_GUIDE.md                  # New trader's guide (also in-app)
 ├── 📄 requirements.txt                   # Python dependencies
 ├── 📄 setup.sh                           # Automated setup script
 ├── 📄 .env.example                       # Environment variables template
-├── 📄 .gitignore                         # Git ignore rules
 │
-├── 📂 config/                            # Configuration
+├── 📂 config/
 │   └── settings.py                       # App settings & environment vars
 │
-├── 📂 models/                            # Data models
-│   ├── __init__.py
+├── 📂 models/
 │   ├── stock_data.py                     # Stock data model
 │   └── trading_signal.py                 # Trading signals & news models
 │
-├── 📂 services/                          # Business logic services
-│   ├── __init__.py
-│   ├── market_data_service.py           # Fetch live stock data
-│   ├── gemini_service.py                # AI news & analysis
-│   └── trading_strategy_service.py      # Trading signals generation
+├── 📂 services/
+│   ├── market_data_service.py            # Fetch live stock data (yfinance)
+│   ├── gemini_service.py                 # AI news & analysis (Gemini)
+│   ├── trading_strategy_service.py       # Signal generation engine
+│   ├── strategies.py                     # Strategy registry
+│   ├── day_trading_strategies.py         # VWAP, ORB, Momentum
+│   ├── swing_trading_strategies.py       # Mean Reversion, Fibonacci, Breakout
+│   ├── backtest_service.py              # Backtesting engine
+│   └── portfolio_service.py             # Portfolio DB (SQLite)
 │
-├── 📂 utils/                             # Utility functions
-│   ├── __init__.py
-│   ├── indicators.py                     # Technical indicators
-│   └── helpers.py                        # Helper functions
+├── 📂 utils/
+│   ├── indicators.py                     # Technical indicators (RSI, MACD, BB, etc.)
+│   └── helpers.py                        # Formatting & utility functions
 │
-├── 📂 dashboard/                         # Streamlit UI
-│   ├── __init__.py
-│   └── app.py                            # Main dashboard application
+├── 📂 dashboard/
+│   ├── app.py                            # Main Streamlit app (10 tabs)
+│   └── components/
+│       ├── market_overview.py            # Live market data cards
+│       ├── portfolio_management.py       # Portfolio tracker
+│       ├── backtest_tab.py               # Backtesting interface
+│       ├── news_analysis.py              # AI news & sentiment
+│       ├── trading_signals.py            # Signal scanner
+│       ├── charts.py                     # Interactive charts
+│       ├── day_trading_tab.py            # Day trading interface
+│       ├── swing_trading_tab.py          # Swing trading interface
+│       ├── news_controller_tab.py        # News impact tuning
+│       └── beginner_guide_tab.py         # In-app beginner's guide
 │
-└── 📂 tests/                             # Test suite
-    ├── __init__.py
-    └── test_services.py                  # Service tests
+└── 📂 tests/                             # Unit tests
 ```
 
-## 🎯 Key Features Implemented
+## 🎯 Key Features
 
-### 1. Live Market Data 📊
-- Real-time stock prices via yfinance
-- Current price, volume, market cap
-- P/E ratios and 52-week highs/lows
-- Moving averages (20, 50, 200-day)
-- Multi-stock tracking
+### 1. Six Trading Strategies 📊
+
+**Day Trading (Intraday)**
+| Strategy | Class | Entry Logic |
+|----------|-------|------------|
+| VWAP | `VWAPTradingStrategy` | Price crosses VWAP + volume >1.5× avg |
+| Opening Range Breakout | `OpeningRangeBreakoutStrategy` | Price breaks first 30-min range + volume >1.8× avg |
+| Momentum / Gap-and-Go | `MomentumGapStrategy` | Gap >2% + RSI/MACD confirmation |
+
+**Swing Trading (Multi-day)**
+| Strategy | Class | Entry Logic |
+|----------|-------|------------|
+| Mean Reversion | `MeanReversionBBStrategy` | Price at BB extreme + RSI <30/>70 + volume >1.3× avg |
+| Fibonacci Retracement | `FibonacciRetracementStrategy` | Price at 38.2/50/61.8% Fib level in trend + volume |
+| Breakout | `BreakoutTradingStrategy` | Price breaks support/resistance + volume >2× avg + ADX >25 |
 
 ### 2. AI-Powered Analysis 🤖
 - **Gemini AI Integration**
@@ -61,43 +80,32 @@ esignal/
 - Automatic fallback if API unavailable
 
 ### 3. Technical Indicators 📈
-- **RSI** (Relative Strength Index)
-- **MACD** (Moving Average Convergence Divergence)
-- **Bollinger Bands**
-- **Support/Resistance Levels**
-- **Trend Detection** (Uptrend/Downtrend/Sideways)
-- **Volume Analysis**
-- **Golden Cross / Death Cross** detection
+- RSI, MACD, Bollinger Bands
+- ATR, VWAP, Pivot Points, Fibonacci Levels
+- Support/Resistance identification
+- Trend Detection (Uptrend/Downtrend/Sideways)
+- Volume Profile analysis
+- Golden Cross / Death Cross detection
 
-### 4. Swing Trading Signals 🎯
-- Automated Buy/Sell/Hold recommendations
-- Entry price suggestions
-- Target prices (5-10% profit)
-- Stop-loss levels (3-5% protection)
-- Confidence scores (0-100%)
-- Risk/reward ratios
-- Holding period estimates (3-7 days)
-- Detailed reasoning for each signal
+### 4. Signal Engine 🎯
+- Three-layer scoring: core indicators → strategy logic → news overlay
+- Configurable confidence thresholds
+- ATR-based entry/target/stop-loss calculation
+- Multi-symbol watchlist scanner
+- Signal history tracking in SQLite
 
 ### 5. Interactive Dashboard 💻
-- **4 Main Tabs:**
-  1. Market Overview - Live data cards
-  2. AI News & Analysis - Sentiment & summaries
-  3. Trading Signals - Actionable recommendations
-  4. Detailed Charts - Interactive candlestick charts
-
-- **Features:**
-  - Watchlist management
-  - Auto-refresh (60s intervals)
-  - Manual refresh button
-  - Market status indicator
-  - Responsive design
-  - Beautiful visualizations with Plotly
-
-### 6. Data Visualization 📊
-- Interactive candlestick charts
-- Volume charts with color coding
-- Moving average overlays
+- **10 Tabs:**
+  1. 📊 Market Overview — live data cards
+  2. 💼 My Portfolio — holdings & P/L tracker
+  3. 🧪 Backtest — test strategies on history
+  4. 📰 AI News & Analysis — Gemini sentiment
+  5. 🎯 Trading Signals — signal scanner
+  6. 📈 Detailed Charts — candlesticks + overlays
+  7. 📈 Day Trading — intraday strategy interface
+  8. 🌊 Swing Trading — multi-day strategy interface
+  9. 📰 News Controller — tune news impact weights
+  10. � Beginner's Guide — learn-to-trade tab
 - 3-month historical data
 - Real-time price updates
 
@@ -149,44 +157,16 @@ esignal/
 - **python-dotenv** - Environment management
 - **pydantic** - Data validation
 
-## 📊 Trading Strategy Logic
+## 📊 Signal Generation Pipeline
 
-### Signal Generation Algorithm
-1. **Data Collection**
-   - Fetch historical data (3 months)
-   - Calculate all technical indicators
-   
-2. **Signal Scoring**
-   - Each indicator contributes to buy/sell score
-   - Weighted by importance
-   - Combined confidence calculation
-
-3. **Buy Signals** (Positive Indicators)
-   - RSI < 30 (oversold)
-   - MACD bullish crossover
-   - Uptrend detected
-   - High volume with price increase
-   - Golden cross
-   - Price below lower Bollinger Band
-
-4. **Sell Signals** (Negative Indicators)
-   - RSI > 70 (overbought)
-   - MACD bearish crossover
-   - Downtrend detected
-   - High volume with price decrease
-   - Death cross
-   - Price above upper Bollinger Band
-
-5. **AI Enhancement**
-   - Gemini AI validates signals
-   - Provides reasoning
-   - Adjusts confidence if needed
-
-### Risk Management
-- Stop-loss: 5% below entry
-- Target: 10% above entry
-- Minimum confidence: 60%
-- Position sizing recommendations
+1. **Data Collection** — Fetch OHLCV data at the right timeframe
+2. **Indicator Calculation** — RSI, MACD, BB, ATR, VWAP, Fibs, pivots, etc.
+3. **Core Scoring** — RSI oversold/overbought (+2 pts), MACD crossover (+1 pt)
+4. **Strategy Scoring** — Strategy-specific logic adds +2 pts (VWAP proximity, Fib level, breakout, etc.)
+5. **Trend Context** — Swing strategies get +1 pt for daily trend alignment
+6. **News Overlay** — Gemini sentiment score with relevance weighting (+1 to +4 pts)
+7. **Signal Decision** — BUY if buy > sell points, SELL if reversed, HOLD if tied
+8. **Risk Calculation** — ATR-based stop-loss & target (tighter for day, wider for swing)
 
 ## 🎨 UI/UX Features
 

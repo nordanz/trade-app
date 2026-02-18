@@ -45,3 +45,8 @@ Thumbs.db
 # Cache
 .cache/
 .pytest_cache/
+
+# environment files
+.env
+venv*/
+env*/
