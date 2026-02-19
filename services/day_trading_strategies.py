@@ -104,8 +104,10 @@ class VWAPTradingStrategy(BaseDayTradingStrategy):
                 self.position.close()
             return
 
+        price  = self.data.Close[-1]
+
         result = vwap_signal(
-            price=self.data.Close[-1],
+            price=price,
             vwap=self.vwap[-1],
             volume=self.data.Volume[-1],
             avg_volume=self.avg_volume[-1],
@@ -120,12 +122,23 @@ class VWAPTradingStrategy(BaseDayTradingStrategy):
 
         if not self.position:
             if result.direction == 'BUY':
-                self.buy(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                if sl is not None and sl >= price:
+                    sl = price * 0.98
+                if tp is not None and tp <= price:
+                    tp = price * 1.02
+                self.buy(sl=sl, tp=tp)
             elif result.direction == 'SELL':
-                self.sell(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                if sl is not None and sl <= price:
+                    sl = price * 1.02
+                if tp is not None and tp >= price:
+                    tp = price * 0.98
+                self.sell(sl=sl, tp=tp)
         else:
             # Mean-reversion exit: close when price returns to VWAP
-            price = self.data.Close[-1]
             vwap  = self.vwap[-1]
             if self.position.is_long and price >= vwap:
                 self.position.close()
@@ -205,9 +218,21 @@ class OpeningRangeBreakoutStrategy(BaseDayTradingStrategy):
         )
 
         if result.direction == 'BUY':
-            self.buy(sl=result.sl_price, tp=result.tp_price)
+            sl = result.sl_price
+            tp = result.tp_price
+            if sl is not None and sl >= price:
+                sl = price * 0.98
+            if tp is not None and tp <= price:
+                tp = price * 1.02
+            self.buy(sl=sl, tp=tp)
         elif result.direction == 'SELL':
-            self.sell(sl=result.sl_price, tp=result.tp_price)
+            sl = result.sl_price
+            tp = result.tp_price
+            if sl is not None and sl <= price:
+                sl = price * 1.02
+            if tp is not None and tp >= price:
+                tp = price * 0.98
+            self.sell(sl=sl, tp=tp)
 
 
 class MomentumGapStrategy(BaseDayTradingStrategy):

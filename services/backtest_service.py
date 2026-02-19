@@ -43,6 +43,18 @@ DAY_TRADING_STRATEGY_NAMES = set(DAY_TRADING_STRATEGIES.keys())
 SWING_TRADING_STRATEGY_NAMES = set(SWING_TRADING_STRATEGIES.keys())
 
 
+def _safe_str(value) -> str:
+    """Return empty string for None/NaN, otherwise str(value)."""
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
 class BacktestService:
     """Service for backtesting all trading strategies (day trading & swing)."""
 
@@ -407,7 +419,7 @@ class BacktestService:
                 return_pct=float(row.ReturnPct),
                 trade_type='BUY',
                 sentiment_score=sentiment_score,
-                notes=getattr(row, 'Tag', '') or ''
+                notes=_safe_str(getattr(row, 'Tag', ''))
             ))
         return trades
     

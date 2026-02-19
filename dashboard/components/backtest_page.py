@@ -1,623 +1,465 @@
-"""Backtest page – strategy comparison and deep-dive for power users."""
+"""Backtest – Dash component."""
 
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
 from datetime import date, timedelta
+from dash import Input, Output, State, dcc, html, dash_table
+import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
 
 from services.backtest_service import STRATEGY_MIN_BARS
-from services.strategies import ALL_STRATEGIES, DAY_TRADING_STRATEGIES, SWING_TRADING_STRATEGIES
+from services.strategies import DAY_TRADING_STRATEGIES, SWING_TRADING_STRATEGIES
 from utils.helpers import format_price, format_percentage
 
-_STRATEGY_LABELS: dict[str, str] = {
-    'vwap':           '🎯 VWAP',
-    'orb':            '🔓 Opening Range Breakout',
-    'momentum':       '🚀 Momentum / Gap-and-Go',
-    'mean_reversion': '↩️ Mean Reversion (BB)',
-    'fibonacci':      '📐 Fibonacci Retracement',
-    'breakout':       '💥 Breakout',
+_LABELS = {
+    "vwap":           "🎯 VWAP",
+    "orb":            "🔓 Opening Range Breakout",
+    "momentum":       "🚀 Momentum / Gap-and-Go",
+    "mean_reversion": "↩️ Mean Reversion (BB)",
+    "fibonacci":      "📐 Fibonacci Retracement",
+    "breakout":       "💥 Breakout",
 }
+_DAY_KEYS   = list(DAY_TRADING_STRATEGIES.keys())
+_SWING_KEYS = list(SWING_TRADING_STRATEGIES.keys())
 
-_DAY_STRATEGY_KEYS = list(DAY_TRADING_STRATEGIES.keys())
-_SWING_STRATEGY_KEYS = list(SWING_TRADING_STRATEGIES.keys())
+
+def layout(services, watchlist: list) -> html.Div:
+    sym_options = [{"label": s, "value": s} for s in (watchlist or ["AAPL"])]
+
+    return html.Div([
+        dcc.Store(id="bt-strat-type-store", data="swing"),
+        dcc.Store(id="bt-strategy-store",   data=_SWING_KEYS[0] if _SWING_KEYS else ""),
+
+        html.P(
+            "Deep-dive a single strategy or compare all side-by-side. "
+            "For quick backtests use the panel on Day / Swing Trading pages.",
+            style={"color": "#888", "fontSize": "0.85rem", "marginBottom": "1rem"},
+        ),
+
+        dbc.RadioItems(
+            id="bt-mode",
+            options=[
+                {"label": "Single Strategy",        "value": "single"},
+                {"label": "Compare All Strategies", "value": "compare"},
+            ],
+            value="single",
+            inline=True,
+            style={"marginBottom": "1rem"},
+        ),
+
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Symbol"),
+                dcc.Dropdown(
+                    id="bt-symbol",
+                    options=sym_options,
+                    value=sym_options[0]["value"] if sym_options else "AAPL",
+                    clearable=False,
+                    style={"color": "#000"},
+                ),
+                dbc.Input(
+                    id="bt-custom-symbol",
+                    placeholder="…or type a symbol",
+                    className="mt-1",
+                    style={
+                        "backgroundColor": "#161b27",
+                        "color":           "#e0e0e0",
+                        "borderColor":     "#2a2f3e",
+                        "fontSize":        "0.85rem",
+                    },
+                ),
+            ], md=3),
+            dbc.Col([
+                dbc.Label("Start Date"),
+                dbc.Input(
+                    id="bt-start",
+                    type="date",
+                    value=(date.today() - timedelta(days=365)).strftime("%Y-%m-%d"),
+                    style={
+                        "backgroundColor": "#161b27",
+                        "color":           "#e0e0e0",
+                        "borderColor":     "#2a2f3e",
+                    },
+                ),
+                html.Small(id="bt-date-hint",
+                           children="Swing: up to 1 year recommended",
+                           style={"color": "#888", "fontSize": "0.75rem"}),
+            ], md=2),
+            dbc.Col([
+                dbc.Label("End Date"),
+                dbc.Input(
+                    id="bt-end",
+                    type="date",
+                    value=date.today().strftime("%Y-%m-%d"),
+                    style={
+                        "backgroundColor": "#161b27",
+                        "color":           "#e0e0e0",
+                        "borderColor":     "#2a2f3e",
+                    },
+                ),
+            ], md=2),
+            dbc.Col([
+                dbc.Label("Starting Capital ($)"),
+                dbc.Input(
+                    id="bt-cash",
+                    type="number",
+                    value=10_000,
+                    min=1_000,
+                    step=1_000,
+                    style={
+                        "backgroundColor": "#161b27",
+                        "color":           "#e0e0e0",
+                        "borderColor":     "#2a2f3e",
+                    },
+                ),
+            ], md=2),
+            dbc.Col([
+                dbc.Label("News Sentiment"),
+                dbc.Switch(
+                    id="bt-sentiment",
+                    value=False,
+                    label="Include (needs NEWS_API_KEY)",
+                ),
+            ], md=3),
+        ], className="g-3 mb-3"),
+
+        html.Div(id="bt-single-inputs"),
+
+        dbc.Button(
+            "▶️ Run Backtest",
+            id="bt-run-btn",
+            color="primary",
+            className="mb-3 w-100",
+        ),
+
+        dbc.Spinner(html.Div(id="bt-results"), color="primary"),
+    ])
 
 
-def render_backtest_page(services, watchlist):
-    """Render the full-page Backtest tab."""
-    st.caption(
-        "Deep-dive a single strategy or compare all strategies side-by-side. "
-        "For quick in-context backtests use the **🧪 Backtest** panel on the Day/Swing Trading pages."
+def register_callbacks(app, services):
+
+    @app.callback(
+        Output("bt-single-inputs", "children"),
+        Input("bt-mode", "value"),
     )
+    def _single_inputs(mode):
+        if mode != "single":
+            return ""
+        swing_opts = [{"label": _LABELS.get(k, k), "value": k} for k in _SWING_KEYS]
+        day_opts   = [{"label": _LABELS.get(k, k), "value": k} for k in _DAY_KEYS]
+        return dbc.Row([
+            dbc.Col([
+                dbc.Label("Strategy Type"),
+                dbc.RadioItems(
+                    id="bt-strat-type",
+                    options=[
+                        {"label": "Swing", "value": "swing"},
+                        {"label": "Day",   "value": "day"},
+                    ],
+                    value="swing",
+                    inline=True,
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Label("Strategy"),
+                dcc.Dropdown(
+                    id="bt-strategy",
+                    options=swing_opts,
+                    value=_SWING_KEYS[0] if _SWING_KEYS else None,
+                    clearable=False,
+                    style={"color": "#000"},
+                ),
+            ], md=4),
+        ], className="g-3 mb-3")
 
-    if 'backtest' not in services:
-        st.error("BacktestService is not available.")
-        return
-
-    # ── Mode toggle ──────────────────────────────────────────────────────────
-    mode = st.radio(
-        "Mode",
-        ["Single Strategy", "Compare All Strategies"],
-        horizontal=True,
-        key="bt_page_mode",
+    @app.callback(
+        Output("bt-strategy", "options"),
+        Output("bt-strategy", "value"),
+        Input("bt-strat-type", "value"),
+        prevent_initial_call=True,
     )
+    def _swap_strategies(strat_type):
+        if strat_type == "day":
+            opts = [{"label": _LABELS.get(k, k), "value": k} for k in _DAY_KEYS]
+            return opts, (_DAY_KEYS[0] if _DAY_KEYS else None)
+        opts = [{"label": _LABELS.get(k, k), "value": k} for k in _SWING_KEYS]
+        return opts, (_SWING_KEYS[0] if _SWING_KEYS else None)
 
-    st.divider()
-
-    # ── Shared inputs ────────────────────────────────────────────────────────
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        symbol = st.selectbox(
-            "Stock Symbol",
-            options=watchlist if watchlist else ["AAPL"],
-            key="bt_page_symbol",
-        )
-        custom = st.text_input(
-            "…or type a symbol",
-            placeholder="e.g. NVDA",
-            key="bt_page_custom_symbol",
-        ).upper()
-        if custom:
-            symbol = custom
-
-    with col2:
-        start_date = st.date_input(
-            "Start date",
-            value=date.today() - timedelta(days=365),
-            max_value=date.today(),
-            key="bt_page_start",
-        )
-
-    with col3:
-        end_date = st.date_input(
-            "End date",
-            value=date.today(),
-            min_value=start_date,
-            max_value=date.today(),
-            key="bt_page_end",
-        )
-
-    col1, col2 = st.columns(2)
-    with col1:
-        cash = st.number_input(
-            "Starting capital ($)",
-            min_value=1_000,
-            max_value=1_000_000,
-            value=10_000,
-            step=1_000,
-            key="bt_page_cash",
-        )
-    with col2:
-        use_sentiment = st.checkbox(
-            "Include news sentiment",
-            value=False,
-            key="bt_page_sentiment",
-            help="Requires NEWS_API_KEY. Sentiment is fetched once and shared across all runs.",
-        )
-
-    # ── Single-strategy extra inputs ─────────────────────────────────────────
-    if mode == "Single Strategy":
-        col1, col2 = st.columns(2)
-        with col1:
-            strategy_type = st.radio(
-                "Strategy type",
-                ["Swing Trading", "Day Trading"],
-                horizontal=True,
-                key="bt_page_strat_type",
+    @app.callback(
+        Output("bt-start", "value"),
+        Output("bt-date-hint", "children"),
+        Input("bt-strat-type", "value"),
+        prevent_initial_call=True,
+    )
+    def _update_date_range(strat_type):
+        # Day trading: last 30 days (intraday data limit)
+        # Swing trading: last 365 days
+        if strat_type == "day":
+            return (
+                (date.today() - timedelta(days=30)).strftime("%Y-%m-%d"),
+                "Day: max ~60 days for 5m data",
             )
-        with col2:
-            keys = _SWING_STRATEGY_KEYS if strategy_type == "Swing Trading" else _DAY_STRATEGY_KEYS
-            strategy_name = st.selectbox(
-                "Strategy",
-                options=keys,
-                format_func=lambda x: _STRATEGY_LABELS.get(x, x),
-                key="bt_page_strategy",
-            )
-
-        if strategy_type == "Day Trading":
-            st.caption(
-                "⚠️ Day-trading strategies use **5-minute bars**. "
-                "yfinance limits intraday history to ~60 days."
-            )
-
-    # ── Run button ───────────────────────────────────────────────────────────
-    run = st.button("▶️ Run Backtest", type="primary", use_container_width=True, key="bt_page_run")
-
-    if run:
-        # ── Fetch data ───────────────────────────────────────────────────────
-        is_intraday = (
-            mode == "Single Strategy"
-            and strategy_name in _DAY_STRATEGY_KEYS
+        return (
+            (date.today() - timedelta(days=365)).strftime("%Y-%m-%d"),
+            "Swing: up to 1 year recommended",
         )
 
-        # yfinance caps 5-minute data to the last 60 days.  Clamp silently so the
-        # fetch always succeeds even if the user picked a wider window.
-        _60_days_ago = date.today() - timedelta(days=59)
-        fetch_start = max(start_date, _60_days_ago) if is_intraday else start_date
+    @app.callback(
+        Output("bt-strategy-store",   "data"),
+        Output("bt-strat-type-store", "data"),
+        Input("bt-strategy",   "value"),
+        Input("bt-strat-type", "value"),
+        prevent_initial_call=True,
+    )
+    def _sync_stores(strategy, strat_type):
+        return strategy, strat_type
 
-        if is_intraday and fetch_start > start_date:
-            st.warning(
-                f"⚠️ yfinance limits 5-minute intraday data to **60 days**. "
-                f"Start date clamped to **{fetch_start}**."
-            )
+    @app.callback(
+        Output("bt-results", "children"),
+        Input("bt-run-btn", "n_clicks"),
+        State("bt-mode",            "value"),
+        State("bt-symbol",          "value"),
+        State("bt-custom-symbol",   "value"),
+        State("bt-start",           "value"),
+        State("bt-end",             "value"),
+        State("bt-cash",            "value"),
+        State("bt-sentiment",       "value"),
+        State("bt-strategy-store",  "data"),
+        State("bt-strat-type-store","data"),
+        prevent_initial_call=True,
+    )
+    def _run(_, mode, symbol, custom, start_str, end_str, cash, sentiment,
+             strategy_store, strat_type_store):
+        symbol = (custom.strip().upper() if custom else symbol) or "AAPL"
+        # Use stored strategy (set when user picks from dropdown); fall back to default
+        strategy_name = strategy_store or (_SWING_KEYS[0] if _SWING_KEYS else "mean_reversion")
+        is_intraday   = (strat_type_store == "day")
 
-        # yfinance `end` is exclusive — add one day so the chosen end date is included.
-        fetch_end = end_date + timedelta(days=1)
+        start = date.fromisoformat(start_str)
+        end   = date.fromisoformat(end_str)
+        fetch_end = end + timedelta(days=1)
 
-        with st.spinner(f"Fetching {'5-min intraday' if is_intraday else 'daily'} data for {symbol}…"):
-            interval = "5m" if is_intraday else "1d"
-            hist = services['market'].get_historical_data(
-                symbol,
-                interval=interval,
-                start=fetch_start.strftime("%Y-%m-%d"),
-                end=fetch_end.strftime("%Y-%m-%d"),
-            )
+        interval = "5m" if is_intraday else "1d"
+        hist = services["market"].get_historical_data(
+            symbol,
+            interval=interval,
+            start=start.strftime("%Y-%m-%d"),
+            end=fetch_end.strftime("%Y-%m-%d"),
+        )
 
         if hist is None or hist.empty:
-            st.error(
-                f"No data returned for **{symbol}** between {fetch_start} and {end_date}. "
-                "Try a wider date range or check the ticker symbol."
+            return dbc.Alert(
+                f"No data returned for {symbol} in the selected date range.",
+                color="danger",
             )
-            st.session_state.pop('bt_page_result', None)
-        else:
-            st.success(f"Loaded **{len(hist)} bars** for {symbol}  ({interval})")
-            # ── Execute and cache result in session_state ─────────────────────
-            if mode == "Single Strategy":
-                st.session_state['bt_page_result'] = {
-                    'mode': 'single',
-                    'hist': hist,
-                    'symbol': symbol,
-                    'strategy_name': strategy_name,
-                    'cash': cash,
-                    'use_sentiment': use_sentiment,
-                }
-            else:
-                st.session_state['bt_page_result'] = {
-                    'mode': 'compare',
-                    'hist': hist,
-                    'symbol': symbol,
-                    'cash': cash,
-                    'use_sentiment': use_sentiment,
-                }
 
-    # ── Render cached result (survives re-runs without re-fetching) ──────────
-    cached = st.session_state.get('bt_page_result')
-    if not cached:
-        return
+        if mode == "single":
+            result = services["backtest"].run_backtest(
+                ohlc_data=hist,
+                symbol=symbol,
+                strategy_name=strategy_name,
+                cash=float(cash or 10_000),
+                use_sentiment=bool(sentiment),
+            )
+            return _render_single(result, hist, symbol, strategy_name)
 
-    if cached['mode'] == 'single':
-        _run_single(services, cached['hist'], cached['symbol'],
-                    cached['strategy_name'], cached['cash'], cached['use_sentiment'])
-    else:
-        _run_comparison(services, cached['hist'], cached['symbol'],
-                        cached['cash'], cached['use_sentiment'])
-
-
-# ---------------------------------------------------------------------------
-# Single strategy
-# ---------------------------------------------------------------------------
-
-def _run_single(services, hist, symbol, strategy_name, cash, use_sentiment):
-    with st.spinner(f"Running {_STRATEGY_LABELS.get(strategy_name, strategy_name)}…"):
-        result = services['backtest'].run_backtest(
+        compare = services["backtest"].compare_strategies(
             ohlc_data=hist,
             symbol=symbol,
-            strategy_name=strategy_name,
-            cash=float(cash),
-            use_sentiment=use_sentiment,
+            cash=float(cash or 10_000),
+            use_sentiment=bool(sentiment),
         )
+        return _render_compare(compare)
 
-    if result['status'] == 'INSUFFICIENT_DATA':
+
+def _render_single(result, hist, symbol, strategy_name):
+    status = result.get("status", "")
+    if status == "INSUFFICIENT_DATA":
         min_bars = STRATEGY_MIN_BARS.get(strategy_name, 30)
-        st.warning(
-            f"⚠️ Not enough bars — **{strategy_name}** needs at least {min_bars} bars, "
-            f"got {len(hist)}. Widen the date range."
+        return dbc.Alert(
+            f"Not enough bars — {strategy_name} needs {min_bars}, got {len(hist)}.",
+            color="warning",
         )
-        return
-
-    if result['status'] != 'SUCCESS':
-        st.error(f"Backtest error: {result.get('error', result['status'])}")
-        return
-
-    st.success("✅ Backtest complete")
-
-    _render_single_metrics(result['metrics'])
-    _render_equity_curve(result['equity_curve'], symbol, strategy_name)
-    _render_trades_table(result['trades'])
-
-    if use_sentiment and result.get('sentiment'):
-        _render_sentiment_summary(result['sentiment'])
-
-
-def _render_single_metrics(metrics: dict) -> None:
-    st.markdown("### 📊 Performance Metrics")
-
-    net = metrics.get('net_profit', 0)
-    ret = metrics.get('return_pct')
-    bah = metrics.get('buy_and_hold_return_pct')
-    sharpe = metrics.get('sharpe_ratio')
-    drawdown = metrics.get('max_drawdown')
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Net Profit", format_price(net),
-              delta=f"{ret:.1f}%" if ret is not None else None,
-              delta_color="normal" if net >= 0 else "inverse")
-    c2.metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%",
-              f"{metrics.get('total_trades', 0)} trades")
-    c3.metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
-    c4.metric("Avg Return/Trade", format_percentage(metrics.get('avg_return', 0)))
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Gross Profit", format_price(metrics.get('gross_profit', 0)))
-    c2.metric("Gross Loss", format_price(metrics.get('gross_loss', 0)))
-    c3.metric("Best Trade", format_percentage(metrics.get('best_trade', 0)))
-    c4.metric("Worst Trade", format_percentage(metrics.get('worst_trade', 0)))
-
-    if any(v is not None for v in (sharpe, drawdown, bah)):
-        c1, c2, c3, _ = st.columns(4)
-        if sharpe is not None:
-            c1.metric("Sharpe Ratio", f"{sharpe:.2f}")
-        if drawdown is not None:
-            c2.metric("Max Drawdown", f"{drawdown:.1f}%")
-        if bah is not None:
-            c3.metric("Buy & Hold Return", f"{bah:.1f}%")
-
-
-# ---------------------------------------------------------------------------
-# Comparison mode
-# ---------------------------------------------------------------------------
-
-def _run_comparison(services, hist, symbol, cash, use_sentiment):
-    # Comparison mode uses daily bars → swing strategies only.
-    # Day-trading strategies need intraday bars (Single Strategy mode).
-    swing_keys = _SWING_STRATEGY_KEYS
-
-    with st.spinner(f"Running {len(swing_keys)} swing strategies on {symbol}…"):
-        compare_result = services['backtest'].compare_strategies(
-            ohlc_data=hist,
-            symbol=symbol,
-            strategy_names=swing_keys,
-            cash=float(cash),
-            use_sentiment=use_sentiment,
+    if status != "SUCCESS":
+        return dbc.Alert(
+            f"Backtest error: {result.get('error', status)}",
+            color="danger",
         )
 
-    st.info(
-        "ℹ️ Comparison mode uses **daily bars** and runs the 3 swing strategies. "
-        "Day-trading strategies require intraday (5-min) data — use Single Strategy mode for those."
-    )
+    m   = result.get("metrics", {})
+    net = m.get("net_profit", 0)
 
-    if compare_result['status'] != 'SUCCESS':
-        st.error("Comparison failed.")
-        return
+    metrics_row = dbc.Row([
+        dbc.Col(_kv("Net Profit",    format_price(net),
+                    "positive" if net >= 0 else "negative"), md=3),
+        dbc.Col(_kv("Win Rate",
+                    f"{m.get('win_rate', 0):.1f}% ({m.get('total_trades', 0)} trades)"), md=3),
+        dbc.Col(_kv("Profit Factor", f"{m.get('profit_factor', 0):.2f}"),  md=3),
+        dbc.Col(_kv("Max Drawdown",  f"{m.get('max_drawdown', 0):.1f}%"),  md=3),
+    ], className="g-3 mb-3")
 
-    summary = compare_result['summary']
-
-    st.success(
-        f"✅ {summary['successful_runs']}/{summary['total_strategies']} strategies ran  •  "
-        f"Best: **{_STRATEGY_LABELS.get(summary['best_strategy'], summary['best_strategy'])}** "
-        f"({format_price(summary['best_net_profit'])} net profit)"
-    )
-
-    # ── Ranking table ────────────────────────────────────────────────────────
-    st.markdown("### 🏆 Strategy Ranking")
-
-    ranking_rows = []
-    for entry in summary['ranking']:
-        ranking_rows.append({
-            "Rank": f"#{entry['rank']}",
-            "Strategy": _STRATEGY_LABELS.get(entry['strategy'], entry['strategy']),
-            "Net Profit": format_price(entry['net_profit']),
-            "Win Rate": f"{entry['win_rate']:.1f}%",
-            "Trades": entry['total_trades'],
-            "Sharpe": f"{entry['sharpe_ratio']:.2f}" if entry.get('sharpe_ratio') else "—",
-            "Max DD": f"{entry['max_drawdown']:.1f}%" if entry.get('max_drawdown') else "—",
-        })
-
-    if ranking_rows:
-        df = pd.DataFrame(ranking_rows)
-
-        def _color_net(val: str) -> str:
-            try:
-                num = float(val.replace("$", "").replace(",", "").replace("+", ""))
-                return "color: #2ecc71" if num > 0 else "color: #e74c3c" if num < 0 else ""
-            except ValueError:
-                return ""
-
-        st.dataframe(
-            df.style.applymap(_color_net, subset=["Net Profit"]),
-            use_container_width=True,
-            hide_index=True,
+    equity = result.get("equity_curve", [])
+    chart  = html.Div()
+    if equity:
+        dates  = [e["date"]    for e in equity]
+        values = [e["balance"] for e in equity]
+        fig = go.Figure(
+            go.Scatter(
+                x=dates, y=values,
+                fill="tozeroy",
+                fillcolor="rgba(79,195,247,0.08)",
+                line=dict(color="#4fc3f7", width=2),
+                hovertemplate="<b>%{x}</b><br>$%{y:,.2f}<extra></extra>",
+            )
         )
-
-    # ── Overlay equity curves ────────────────────────────────────────────────
-    successful_results = [r for r in compare_result['results'] if r['status'] == 'SUCCESS']
-    if successful_results:
-        st.markdown("### 📈 Equity Curves (all strategies)")
-        fig = go.Figure()
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
-        for i, r in enumerate(successful_results):
-            if not r.get('equity_curve'):
-                continue
-            ec_df = pd.DataFrame(r['equity_curve'])
-            label = _STRATEGY_LABELS.get(r['strategy'], r['strategy'])
-            fig.add_trace(go.Scatter(
-                x=ec_df['date'], y=ec_df['balance'],
-                mode='lines', name=label,
-                line=dict(color=colors[i % len(colors)], width=2),
-            ))
         fig.update_layout(
-            xaxis_title="Date", yaxis_title="Balance ($)",
-            hovermode="x unified", height=400,
-            margin=dict(t=20, b=30),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            title=f"{symbol} — {_LABELS.get(strategy_name, strategy_name)} Equity Curve",
+            paper_bgcolor="#0f1117", plot_bgcolor="#0f1117",
+            font_color="#e0e0e0",
+            margin=dict(l=0, r=0, t=40, b=0),
+            height=360,
+            xaxis=dict(gridcolor="#1e2536"),
+            yaxis=dict(gridcolor="#1e2536", tickprefix="$", autorange=True),
+            hovermode="x unified",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        chart = dcc.Graph(
+            figure=fig,
+            config={"displayModeBar": True, "modeBarButtonsToRemove": ["lasso2d", "select2d"]},
+        )
 
-    # ── Per-strategy trade tables (collapsed) ────────────────────────────────
-    st.markdown("### 📋 Trade Details by Strategy")
-    for r in successful_results:
-        label = _STRATEGY_LABELS.get(r['strategy'], r['strategy'])
-        with st.expander(f"{label} — {len(r['trades'])} trades"):
-            _render_trades_table(r['trades'])
+    trades = result.get("trades", [])
+    trade_tbl = html.Div()
+    if trades:
+        rows = [
+            {
+                "Entry Date":  getattr(t, "entry_date",  "—"),
+                "Exit Date":   getattr(t, "exit_date",   "—"),
+                "Entry $":     format_price(getattr(t, "entry_price", 0)),
+                "Exit $":      format_price(getattr(t, "exit_price",  0)),
+                "Shares":      f"{getattr(t, 'shares', 0):.2f}",
+                "P/L":         format_price(getattr(t, "profit_loss", 0)),
+                "Return":      format_percentage(getattr(t, "return_pct", 0)),
+            }
+            for t in trades
+        ]
+        trade_tbl = dash_table.DataTable(
+            data=rows,
+            columns=[{"name": c, "id": c} for c in rows[0]],
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "backgroundColor": "#161b27",
+                "color":           "#e0e0e0",
+                "border":          "1px solid #2a2f3e",
+                "padding":         "6px 12px",
+                "fontSize":        "0.82rem",
+            },
+            style_header={
+                "backgroundColor": "#1e2536",
+                "fontWeight":      "bold",
+                "border":          "1px solid #2a2f3e",
+            },
+            page_size=15,
+            sort_action="native",
+        )
+
+    return html.Div([
+        dbc.Alert(
+            "✅ Backtest complete",
+            color="success",
+            style={"padding": "0.4rem 0.75rem", "fontSize": "0.85rem"},
+        ),
+        metrics_row,
+        chart,
+        html.H6("Trades", style={"marginTop": "1.5rem", "marginBottom": "0.5rem"}),
+        trade_tbl,
+    ])
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
+def _render_compare(compare):
+    if not compare or compare.get("status") != "SUCCESS":
+        err = compare.get("error", "Unknown error") if compare else "No results"
+        return dbc.Alert(f"Comparison failed: {err}", color="warning")
 
-def _render_equity_curve(equity_curve: list, symbol: str, strategy_name: str) -> None:
-    if not equity_curve:
-        return
-    st.markdown("### 📈 Equity Curve")
-    df = pd.DataFrame(equity_curve)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df['date'], y=df['balance'],
-        mode='lines', name='Portfolio',
-        line=dict(color='#1f77b4', width=2),
-        fill='tozeroy', fillcolor='rgba(31,119,180,0.1)',
+    summary  = compare.get("summary", {})
+    ranking  = summary.get("ranking", [])
+    failed   = compare.get("results", [])
+    failed   = [r for r in failed if r.get("status") != "SUCCESS"]
+
+    if not ranking:
+        return dbc.Alert(
+            "No strategies produced results for the selected date range. "
+            "Try a wider range or a different symbol.",
+            color="warning",
+        )
+
+    best = summary.get("best_strategy")
+    children = []
+
+    # Summary banner
+    children.append(dbc.Alert(
+        [
+            html.Strong(f"✅ {summary.get('successful_runs', 0)}/{summary.get('total_strategies', 0)} strategies ran successfully.  "),
+            f"Best: {_LABELS.get(best, best)}  •  "
+            f"Net profit: {format_price(summary.get('best_net_profit', 0))}",
+        ],
+        color="success",
+        style={"padding": "0.5rem 0.75rem", "fontSize": "0.85rem", "marginBottom": "1rem"},
     ))
-    fig.update_layout(
-        title=f"{symbol} — {_STRATEGY_LABELS.get(strategy_name, strategy_name)}",
-        xaxis_title="Date", yaxis_title="Balance ($)",
-        hovermode='x unified', height=350,
-        margin=dict(t=40, b=30),
-    )
-    st.plotly_chart(fig, use_container_width=True)
 
+    # Ranking table
+    rows = [
+        {
+            "Rank":          f"#{r['rank']}",
+            "Strategy":      _LABELS.get(r.get("strategy", ""), r.get("strategy", "")),
+            "Net Profit":    format_price(r.get("net_profit", 0)),
+            "Win Rate":      f"{r.get('win_rate', 0):.1f}%",
+            "Trades":        str(r.get("total_trades", 0)),
+            "Sharpe":        f"{r.get('sharpe_ratio', 0):.2f}" if r.get("sharpe_ratio") else "—",
+            "Max Drawdown":  f"{r.get('max_drawdown', 0):.1f}%" if r.get("max_drawdown") else "—",
+        }
+        for r in ranking
+    ]
 
-def _render_trades_table(trades: list) -> None:
-    if not trades:
-        st.info("No trades generated.")
-        return
-    rows = [{
-        "Entry": t.entry_date, "Exit": t.exit_date,
-        "Entry $": format_price(t.entry_price), "Exit $": format_price(t.exit_price),
-        "Return": format_percentage(t.return_pct), "P/L": format_price(t.profit_loss),
-    } for t in trades]
-    df = pd.DataFrame(rows)
+    children.append(dash_table.DataTable(
+        data=rows,
+        columns=[{"name": c, "id": c} for c in rows[0]],
+        style_table={"overflowX": "auto"},
+        style_cell={
+            "backgroundColor": "#161b27",
+            "color":           "#e0e0e0",
+            "border":          "1px solid #2a2f3e",
+            "padding":         "6px 12px",
+            "fontSize":        "0.85rem",
+        },
+        style_header={
+            "backgroundColor": "#1e2536",
+            "fontWeight":      "bold",
+            "border":          "1px solid #2a2f3e",
+        },
+        sort_action="native",
+    ))
 
-    def _color(val: str) -> str:
-        try:
-            num = float(val.replace("%", "").replace("+", "").replace("$", "").replace(",", ""))
-            return "color: #2ecc71" if num > 0 else "color: #e74c3c" if num < 0 else ""
-        except ValueError:
-            return ""
-
-    st.dataframe(
-        df.style.applymap(_color, subset=["Return", "P/L"]),
-        use_container_width=True, hide_index=True,
-    )
-
-
-def _render_sentiment_summary(sentiment: dict) -> None:
-    st.markdown("### 📰 News Sentiment")
-    score = sentiment.get("sentiment_score", 0)
-    emoji = "😊" if score > 0.1 else "😟" if score < -0.1 else "😐"
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Score", f"{score:+.2f}", emoji)
-    c2.metric("Articles", sentiment.get("article_count", 0))
-    c3.metric("Status", sentiment.get("status", "—"))
-
-    st.header("🧪 Backtest RSI + MA Strategy")
-    st.info("Backtest a swing trading strategy (RSI + Moving Average) with optional news sentiment filtering.")
-    
-    # Symbol selection
-    col1, col2 = st.columns(2)
-    with col1:
-        backtest_symbol = st.selectbox(
-            "Select Stock to Backtest", 
-            watchlist if watchlist else ['AAPL'], 
-            key="backtest_symbol"
-        )
-    with col2:
-        backtest_period = st.selectbox(
-            "Historical Period", 
-            ['1mo', '3mo', '6mo', '1y'], 
-            index=2,
-            key="backtest_period"
-        )
-    
-    # Strategy parameters
-    st.subheader("⚙️ Strategy Parameters")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        rsi_period = st.number_input("RSI Period", min_value=5, max_value=30, value=14, key="backtest_rsi_period")
-    with col2:
-        rsi_oversold = st.number_input("RSI Oversold", min_value=10, max_value=40, value=30, key="backtest_rsi_oversold")
-    with col3:
-        rsi_overbought = st.number_input("RSI Overbought", min_value=60, max_value=90, value=70, key="backtest_rsi_overbought")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        ma_short = st.number_input("Short MA Period", min_value=5, max_value=50, value=20, key="backtest_ma_short")
-    with col2:
-        ma_long = st.number_input("Long MA Period", min_value=50, max_value=200, value=50, key="backtest_ma_long")
-    with col3:
-        st.metric("Strategy", "RSI + MA Crossover", "Swing Trading")
-    
-    # Sentiment filter
-    st.subheader("📰 Sentiment Filter (Optional)")
-    use_sentiment = st.checkbox("Use news sentiment filter", value=True, key="backtest_use_sentiment")
-    
-    if use_sentiment:
-        sentiment_threshold = st.slider(
-            "Minimum sentiment score for BUY signals",
-            min_value=-1.0,
-            max_value=1.0,
-            value=-0.3,
-            step=0.1,
-            help="Only enter BUY trades if news sentiment is above this threshold",
-            key="backtest_sentiment_slider"
-        )
-    else:
-        sentiment_threshold = -1.0
-    
-    # Run backtest
-    if st.button("🚀 Run Backtest", key="run_backtest"):
-        with st.spinner("Running backtest and fetching data..."):
-            try:
-                # Check if backtest service is available
-                if 'backtest' not in services:
-                    st.error("Backtest service not available. Please ensure BacktestService is initialized.")
-                    return
-                
-                # Fetch historical data
-                hist_data = services['market'].get_historical_data(
-                    backtest_symbol,
-                    period=backtest_period,
-                    interval='1d'
+    # Failed strategies (if any)
+    if failed:
+        children.append(html.Div([
+            html.H6("⚠️ Failed Strategies",
+                    style={"color": "#888", "marginTop": "1rem", "marginBottom": "0.4rem",
+                           "fontSize": "0.85rem"}),
+            *[
+                dbc.Alert(
+                    f"{_LABELS.get(r.get('strategy', ''), r.get('strategy', ''))}: "
+                    f"{r.get('error', r.get('status', 'unknown error'))}",
+                    color="secondary",
+                    style={"padding": "0.3rem 0.75rem", "fontSize": "0.8rem",
+                           "marginBottom": "0.3rem"},
                 )
-                
-                if hist_data.empty:
-                    st.error(f"No data available for {backtest_symbol}")
-                else:
-                    # Run backtest
-                    result = services['backtest'].rsi_ma_backtest(
-                        hist_data,
-                        backtest_symbol,
-                        rsi_period=rsi_period,
-                        rsi_oversold=rsi_oversold,
-                        rsi_overbought=rsi_overbought,
-                        ma_short=ma_short,
-                        ma_long=ma_long,
-                        use_sentiment=use_sentiment,
-                        sentiment_threshold=sentiment_threshold
-                    )
-                    
-                    if result['status'] == 'SUCCESS':
-                        st.success("✅ Backtest completed!")
-                        
-                        # Display sentiment info
-                        if use_sentiment and result.get('sentiment'):
-                            st.markdown("---")
-                            st.subheader("📰 News Sentiment Analysis")
-                            sentiment = result['sentiment']
-                            
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                sentiment_emoji = "😊" if sentiment['sentiment_score'] > 0 else "😟" if sentiment['sentiment_score'] < 0 else "😐"
-                                st.metric("Sentiment Score", sentiment['sentiment_score'], sentiment_emoji)
-                            with col2:
-                                st.metric("Articles Found", sentiment['article_count'])
-                            with col3:
-                                st.metric("Status", sentiment['status'])
-                            
-                            if sentiment.get('articles'):
-                                st.write("**Top News Articles:**")
-                                for i, article in enumerate(sentiment['articles'][:3], 1):
-                                    with st.expander(f"{i}. {article['title'][:60]}..."):
-                                        st.write(article.get('description', 'No description'))
-                                        st.caption(f"Source: {article.get('source', {}).get('name', 'Unknown')}")
-                        
-                        # Display metrics
-                        st.markdown("---")
-                        st.subheader("📊 Backtest Results")
-                        
-                        metrics = result['metrics']
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            st.metric("Total Trades", metrics.get('total_trades', 0))
-                        with col2:
-                            win_rate = metrics.get('win_rate', 0)
-                            win_rate_color = "normal" if win_rate > 50 else "inverse"
-                            st.metric(
-                                "Win Rate",
-                                f"{win_rate:.1f}%",
-                                delta_color=win_rate_color
-                            )
-                        with col3:
-                            avg_return = metrics.get('avg_return', 0)
-                            avg_return_color = "normal" if avg_return > 0 else "inverse"
-                            st.metric(
-                                "Avg Return",
-                                format_percentage(avg_return),
-                                delta_color=avg_return_color
-                            )
-                        with col4:
-                            st.metric("Best Trade", format_percentage(metrics.get('best_trade', 0)))
-                        
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Worst Trade", format_percentage(metrics.get('worst_trade', 0)))
-                        with col2:
-                            st.metric("Gross Profit", format_price(metrics.get('gross_profit', 0)))
-                        with col3:
-                            st.metric("Gross Loss", format_price(metrics.get('gross_loss', 0)))
-                        with col4:
-                            st.metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
-                        
-                        # Equity curve chart
-                        st.markdown("---")
-                        st.subheader("📈 Equity Curve")
-                        
-                        if result.get('equity_curve'):
-                            equity_df = pd.DataFrame(result['equity_curve'])
-                            
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=equity_df['date'],
-                                y=equity_df['balance'],
-                                mode='lines',
-                                name='Portfolio Value',
-                                line=dict(color='#1f77b4', width=2)
-                            ))
-                            
-                            fig.update_layout(
-                                title=f"Portfolio Growth - {backtest_symbol}",
-                                xaxis_title="Date",
-                                yaxis_title="Balance ($)",
-                                hovermode='x unified',
-                                height=400
-                            )
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Trades table
-                        st.markdown("---")
-                        st.subheader("📋 Trade History")
-                        
-                        if result.get('trades'):
-                            trades_data = []
-                            for trade in result['trades']:
-                                trades_data.append({
-                                    "Entry Date": trade.entry_date,
-                                    "Exit Date": trade.exit_date,
-                                    "Entry Price": format_price(trade.entry_price),
-                                    "Exit Price": format_price(trade.exit_price),
-                                    "Return": format_percentage(trade.return_pct),
-                                    "Sentiment": f"{trade.sentiment_score:+.2f}",
-                                    "P/L": format_price(trade.profit_loss)
-                                })
-                            
-                            st.dataframe(pd.DataFrame(trades_data), use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No trades generated. Try adjusting parameters.")
-                    
-                    else:
-                        st.error(f"Backtest failed: {result.get('status', 'Unknown error')}")
-            
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+                for r in failed
+            ],
+        ]))
+
+    return html.Div(children)
+
+
+def _kv(label, value, cls=""):
+    return html.Div(className="metric-card", children=[
+        html.Div(label, className="metric-label"),
+        html.Div(value, className=f"metric-value {cls}"),
+    ])

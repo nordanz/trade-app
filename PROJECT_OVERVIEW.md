@@ -37,7 +37,7 @@ esignal/
 │   └── helpers.py                        # Formatting & utility functions
 │
 ├── 📂 dashboard/
-│   ├── app.py                            # Main Streamlit app (10 tabs)
+│   ├── app.py                            # Main Dash app (multi-page routing)
 │   └── components/
 │       ├── market_overview.py            # Live market data cards
 │       ├── portfolio_management.py       # Portfolio tracker
@@ -149,9 +149,9 @@ esignal/
 - Sentiment analysis
 
 ### Frontend
-- **Streamlit** - Web framework
-- **Plotly** - Interactive charts
-- **streamlit-autorefresh** - Auto-refresh
+- **Dash / Plotly** - Modern analytical web framework
+- **Dash Bootstrap Components (DBC)** - For professional UI/UX
+- **Interactive Graphs** - Real-time trading visualizations
 
 ### Configuration
 - **python-dotenv** - Environment management
@@ -170,71 +170,22 @@ esignal/
 
 ## 🎨 UI/UX Features
 
-### Sidebar
-- Market status indicator
-- Watchlist management
-- Add/remove stocks easily
-- Settings controls
+### Sidebar & Navigation
+- Page-level routing (Home, Portfolio, Signals, Backtest, etc.)
 - Last update timestamp
+- Connection status indicator
 
 ### Main Dashboard
+- High-performance Dash callbacks for real-time interactivity
+- Reusable Backtesting Widget across all strategy pages
 - Color-coded metrics (green/red)
-- Emoji indicators (🟢/🔴)
-- Expandable sections
-- Responsive columns
-- Clean, modern design
-
-### Visual Feedback
-- Loading spinners
-- Success/warning/error messages
-- Real-time updates
-- Interactive charts
-- Hover tooltips
-
-## 🔐 Security & Best Practices
-
-### API Key Management
-- Environment variables
-- .env file excluded from git
-- .env.example as template
-- No hardcoded secrets
-
-### Data Privacy
-- No user data storage
-- No personal information collected
-- All data from public APIs
-
-### Code Quality
-- Type hints throughout
-- Docstrings for all functions
-- Error handling
-- Clean code principles
-- Modular design
-
-## 📚 Documentation
-
-### User Documentation
-- **README.md** - Comprehensive overview
-- **QUICKSTART.md** - Step-by-step guide
-- **DESIGN.md** - Architecture details
-
-### Code Documentation
-- Inline comments
-- Function docstrings
-- Type hints
-- Clear variable names
-
-### Setup Documentation
-- Installation instructions
-- Configuration guide
-- Troubleshooting tips
-- Usage examples
+- Clean, dark-mode themed layout (DBC_DARK)
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Python 3.10+
-- Gemini API key (free at https://makersuite.google.com)
+- Gemini API key (free at https://aistudio.google.com)
 
 ### Installation (3 commands)
 ```bash
@@ -242,7 +193,7 @@ cd /Users/danial/workspaces/esignal
 ./setup.sh
 # Edit .env with your API key
 source venv/bin/activate
-streamlit run dashboard/app.py
+python dashboard/app.py
 ```
 
 ## 🎯 Use Cases
@@ -265,21 +216,41 @@ streamlit run dashboard/app.py
 - Practice paper trading
 - Learn from AI analysis
 
-## 📈 Future Enhancements (Roadmap)
+## � Advanced Strategy Gap Analysis
 
-### Phase 2 (Planned)
-- Portfolio tracking
-- Historical performance
-- Backtesting engine
-- Email/SMS alerts
-- More chart types
+Compared to professional platforms like TradingView or TrendSpider, these are the current gaps in eSignal's strategy engine:
 
-### Phase 3 (Future)
-- Machine learning predictions
-- Options data
-- Sector analysis
-- Paper trading simulator
-- Mobile app
+### 1. Trend-Following (Advanced)
+*   **Ichimoku Cloud (Kinko Hyo):** Advanced trend projection using multiple time-shifted lines.
+*   **SuperTrend:** ATR-based volatility stops to ride trends without getting shaken out.
+
+### 2. Geometric & Harmonic Patterns
+*   **Harmonic Patterns:** Automated detection of Gartley, Bat, and Butterfly patterns based on Fibonacci ratios.
+*   **Elliott Wave Theory:** Algorithmic identification of market cycles and wave counts.
+
+### 3. Volume & Liquidity Analysis
+*   **Volume Profile (VAP):** Analysis of volume by *price level* (horizontal) rather than just time (vertical).
+*   **Order Flow / Tape Reading:** Integration of the Level 2 Limit Order Book to see institutional "walls."
+
+### 4. Technical Recognition
+*   **Candlestick Patterns:** Automated detection of Hammers, Dojis, Engulfing bars, and Island reversals.
+*   **Multi-Timeframe (MTF) Confirmation:** Requiring a higher-timeframe trend (e.g., Daily) to align with a lower-timeframe entry (e.g., 15-min).
+
+## �📈 Future Enhancements (Roadmap)
+
+### Phase 2 (In Progress)
+- ✅ Portfolio tracking
+- ✅ Historical performance
+- ✅ Backtesting engine
+- [ ] Email/SMS alerts
+- [ ] Advanced Charting (Candlestick Patterns)
+
+### Phase 3 (Planned)
+- [ ] **Advanced Indicator Pack:** Ichimoku, SuperTrend, and Volume Profile.
+- [ ] **Harmonic Scanner:** Automated detection of geometric Fibonacci patterns.
+- [ ] **Machine Learning Overlay:** Using historical signal accuracy to weight current trade confidence.
+- [ ] **Paper Trading Simulator:** Full execution environment within the Dash UI.
+- [ ] **Mobile App Interface:** Responsive layout for on-the-go signal monitoring.
 
 ## ⚠️ Important Disclaimers
 
@@ -302,9 +273,9 @@ You now have a complete, professional-grade stock market dashboard that:
 ### Next Steps
 1. Run `./setup.sh` to install dependencies
 2. Add your Gemini API key to `.env`
-3. Start the dashboard: `streamlit run dashboard/app.py`
+3. Start the dashboard: `python dashboard/app.py`
 4. Add your favorite stocks and start exploring!
 
 ---
 
-**Built with ❤️ using Python, Streamlit, and Gemini AI**
+**Built with ❤️ using Python, Dash, and Gemini AI**

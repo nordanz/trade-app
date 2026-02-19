@@ -30,10 +30,10 @@ GEMINI_API_KEY=your_actual_api_key_here
 source venv/bin/activate
 
 # Start the dashboard
-streamlit run dashboard/app.py
+python dashboard/app.py
 ```
 
-The dashboard will open in your browser at `http://localhost:8501`
+The dashboard will open in your browser at `http://127.0.0.1:8050`
 
 ## Using the Dashboard
 

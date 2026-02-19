@@ -108,9 +108,23 @@ class MeanReversionBBStrategy(BaseSwingTradingStrategy):
                 ),
             )
             if result.direction == 'BUY':
-                self.buy(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                # Clamp to satisfy backtesting.py bracket constraint: SL < entry < TP
+                if sl is not None and tp is not None and sl >= price:
+                    sl = price * 0.97
+                if tp is not None and sl is not None and tp <= price:
+                    tp = price * 1.03
+                self.buy(sl=sl, tp=tp)
             elif result.direction == 'SELL':
-                self.sell(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                # Clamp to satisfy: TP < entry < SL
+                if sl is not None and tp is not None and sl <= price:
+                    sl = price * 1.03
+                if tp is not None and sl is not None and tp >= price:
+                    tp = price * 0.97
+                self.sell(sl=sl, tp=tp)
         else:
             bb_middle = self.bb_middle[-1]
             bb_upper  = self.bb_upper[-1]
@@ -219,9 +233,21 @@ class FibonacciRetracementStrategy(BaseSwingTradingStrategy):
                 ),
             )
             if result.direction == 'BUY':
-                self.buy(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                if sl is not None and sl >= price:
+                    sl = price * 0.97
+                if tp is not None and tp <= price:
+                    tp = price * 1.03
+                self.buy(sl=sl, tp=tp)
             elif result.direction == 'SELL':
-                self.sell(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                if sl is not None and sl <= price:
+                    sl = price * 1.03
+                if tp is not None and tp >= price:
+                    tp = price * 0.97
+                self.sell(sl=sl, tp=tp)
         else:
             # Exit if trend reverses
             if self.position.is_long and not is_uptrend:
@@ -299,9 +325,21 @@ class BreakoutTradingStrategy(BaseSwingTradingStrategy):
                 ),
             )
             if result.direction == 'BUY':
-                self.buy(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                if sl is not None and sl >= price:
+                    sl = price * 0.97
+                if tp is not None and tp <= price:
+                    tp = price * 1.03
+                self.buy(sl=sl, tp=tp)
             elif result.direction == 'SELL':
-                self.sell(sl=result.sl_price, tp=result.tp_price)
+                sl = result.sl_price
+                tp = result.tp_price
+                if sl is not None and sl <= price:
+                    sl = price * 1.03
+                if tp is not None and tp >= price:
+                    tp = price * 0.97
+                self.sell(sl=sl, tp=tp)
         else:
             # Exit if price reverses back through breakout level
             if self.position.is_long and price < self.resistance:

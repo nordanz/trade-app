@@ -1,21 +1,21 @@
 # 📈 Stock Market Dashboard with AI-Powered Trading
 
-A comprehensive Python dashboard that provides live stock market data, AI-powered news analysis using Google's Gemini API, and intelligent trading recommendations across **6 built-in strategies**.
+A comprehensive Python dashboard that provides live stock market data, AI-powered news analysis using Google's Gemini API, and intelligent trading recommendations across **6 built-in strategies**. Built with **Dash (Plotly)** for a professional, high-performance analytical experience.
 
 ## 🌟 Features
 
-- **Live Market Data**: Real-time stock prices, volume, and key metrics
+- **Live Market Data**: Real-time stock prices, volume, and key metrics via `yfinance`
+- **Dash-Powered UI**: Modern, responsive, and interactive dashboard using `Dash Bootstrap Components`
 - **Portfolio Management**: Track your holdings, shares, and P/L in real-time
 - **AI News Analysis**: Gemini-powered sentiment analysis and news summaries
 - **6 Trading Strategies**: 3 day trading + 3 swing trading strategies
-- **Backtesting Engine**: Test strategies against historical data
+- **Integrated Backtesting**: Professional backtesting engine available inline on strategy pages
 - **News Impact Controller**: Tune how news sentiment affects signals
-- **Interactive Charts**: Beautiful visualizations with Plotly
-- **Beginner's Guide**: In-app learning tab for new traders
+- **Interactive Graphs**: High-performance Plotly visualizations with full interactivity
+- **Beginner's Guide**: In-app learning page for new traders
 - **Multi-Stock Scanner**: Scan watchlists for opportunities
-- **Transaction History**: Complete audit trail of all trades
-- **Performance Analytics**: Win rate, avg returns, and more
-- **Auto-Refresh**: Real-time updates of market data
+- **Audit Trail**: Complete history of trades and performance tracking
+- **Strategy Comparison**: Compare multiple strategy performances side-by-side
 
 ## 📊 Trading Strategies
 
@@ -105,12 +105,12 @@ cp .env.example .env
 esignal
 ```
 
-**Or manually with Streamlit:**
+**Or manually with Python/Dash:**
 ```bash
-streamlit run dashboard/app.py
+python dashboard/app.py
 ```
 
-The dashboard will open in your browser at `http://localhost:8501`
+The dashboard will open in your browser at `http://127.0.0.1:8050`
 
 ## 📊 Usage
 
@@ -139,9 +139,9 @@ esignal/
 │   └── portfolio_service.py          # Portfolio DB (SQLite)
 ├── models/           # Data models (StockData, TradingSignal)
 ├── utils/            # Technical indicators & helpers
-├── dashboard/        # Streamlit UI
-│   ├── app.py                        # Main app with 10 tabs
-│   └── components/                   # One component per tab
+├── dashboard/        # Dash UI
+│   ├── app.py                        # Main app with multi-page routing
+│   └── components/                   # One component per page (Day/Swing/Portfolio/etc.)
 └── tests/            # Unit tests
 ```
 
@@ -187,11 +187,12 @@ Each signal is scored on a point system combining multiple factors:
 
 ## 🛠️ Technologies
 
-- **Streamlit**: Web dashboard framework
+- **Dash / Plotly**: Modern analytical web dashboard framework
+- **Dash Bootstrap Components (DBC)**: Professional UI/UX layout
 - **yfinance**: Live stock market data
 - **Gemini AI**: News analysis and insights
+- **Backtesting.py**: High-performance strategy simulation
 - **pandas-ta**: Technical indicators
-- **Plotly**: Interactive charts
 - **pandas/numpy**: Data processing
 
 ## 📝 License

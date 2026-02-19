@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Run the Stock Market Dashboard
+# Run the eSignal Dashboard (Dash)
 
-echo "🚀 Starting Stock Market Dashboard..."
+echo "🚀 Starting eSignal Dashboard..."
 echo ""
 
 # Check if virtual environment exists
@@ -26,11 +26,10 @@ if [ ! -f ".env" ]; then
     echo ""
 fi
 
-# Run the dashboard
-echo "Starting Streamlit dashboard..."
-echo "Dashboard will open in your browser at http://localhost:8501"
+# Run the Dash app
+echo "Starting Dash dashboard on http://localhost:8050 ..."
+python dashboard/app.py
+
 echo ""
 echo "Press Ctrl+C to stop the dashboard"
 echo ""
-
-streamlit run dashboard/app.py

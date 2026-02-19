@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def main():
-    """Launch the Streamlit dashboard."""
+    """Launch the Dash dashboard."""
     # Get the path to the app.py file
     app_path = Path(__file__).parent / "dashboard" / "app.py"
     
@@ -17,10 +17,10 @@ def main():
     print("🚀 Launching eSignal Dashboard...")
     print(f"📂 Running app from: {app_path}")
     
-    # Run streamlit with the app
+    # Run Dash with the app
     try:
         subprocess.run(
-            [sys.executable, "-m", "streamlit", "run", str(app_path)],
+            [sys.executable, str(app_path)],
             check=False
         )
     except KeyboardInterrupt:

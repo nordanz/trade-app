@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Setup script for Stock Market Dashboard
+# Setup script for eSignal Dashboard (Dash)
 
-echo "📈 Stock Market Dashboard Setup"
+echo "📈 eSignal Dashboard Setup"
 echo "================================"
 echo ""
 
@@ -61,8 +61,8 @@ echo "2. Activate the virtual environment:"
 echo "   source venv/bin/activate"
 echo ""
 echo "3. Run the dashboard:"
-echo "   streamlit run dashboard/app.py"
+echo "   python dashboard/app.py"
 echo ""
 echo "4. Or run tests:"
-echo "   python tests/test_services.py"
+echo "   pytest"
 echo ""

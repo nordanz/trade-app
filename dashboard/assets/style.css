@@ -1,0 +1,181 @@
+/* ── Global ─────────────────────────────────────────────────── */
+body {
+    background-color: #0f1117;
+    color: #e0e0e0;
+    font-family: "Inter", "Segoe UI", sans-serif;
+    margin: 0;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+#sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 220px;
+    background-color: #161b27;
+    padding: 1.5rem 0.75rem;
+    overflow-y: auto;
+    border-right: 1px solid #2a2f3e;
+    z-index: 100;
+}
+
+#sidebar .brand {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #4fc3f7;
+    padding: 0 0.5rem 1rem 0.5rem;
+    border-bottom: 1px solid #2a2f3e;
+    margin-bottom: 0.75rem;
+}
+
+#sidebar .market-status {
+    font-size: 0.78rem;
+    padding: 0.25rem 0.5rem 0.75rem 0.5rem;
+    color: #aaa;
+}
+
+.nav-section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #555;
+    padding: 0.9rem 0.5rem 0.3rem 0.5rem;
+}
+
+.nav-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    margin: 1px 0;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #c0c0c0;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+}
+
+.nav-btn:hover {
+    background-color: #1e2536;
+    color: #fff;
+}
+
+.nav-btn.active {
+    background-color: #1a3a5c;
+    color: #4fc3f7;
+    font-weight: 600;
+    border-left: 3px solid #4fc3f7;
+}
+
+/* Watchlist */
+.watchlist-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.3rem 0.5rem;
+    border-radius: 5px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    color: #c0c0c0;
+}
+
+.watchlist-item:hover {
+    background-color: #1e2536;
+}
+
+.watchlist-item.selected {
+    color: #4fc3f7;
+    font-weight: 600;
+}
+
+.watchlist-remove {
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0 2px;
+}
+
+.watchlist-remove:hover { color: #e57373; }
+
+/* ── Main content ────────────────────────────────────────────── */
+#page-content {
+    margin-left: 220px;
+    padding: 1.5rem 2rem;
+    min-height: 100vh;
+}
+
+/* ── Top bar ────────────────────────────────────────────────── */
+#topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #2a2f3e;
+}
+
+#topbar h2 {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #e0e0e0;
+}
+
+/* ── Cards / metric boxes ───────────────────────────────────── */
+.metric-card {
+    background-color: #161b27;
+    border: 1px solid #2a2f3e;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+}
+
+.metric-card .metric-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #888;
+    margin-bottom: 0.3rem;
+}
+
+.metric-card .metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #e0e0e0;
+}
+
+.metric-card .metric-delta {
+    font-size: 0.8rem;
+    margin-top: 0.2rem;
+}
+
+.positive { color: #00c853; }
+.negative { color: #e53935; }
+.neutral  { color: #aaa; }
+
+/* ── Tables ─────────────────────────────────────────────────── */
+.dash-table-container .dash-spreadsheet-container {
+    background-color: #161b27 !important;
+}
+
+/* ── Signal badges ──────────────────────────────────────────── */
+.badge-buy  { background-color: #1b5e20; color: #69f0ae; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600; }
+.badge-sell { background-color: #b71c1c; color: #ff8a80; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600; }
+.badge-hold { background-color: #33290a; color: #ffd740; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600; }
+
+/* ── Disclaimer footer ──────────────────────────────────────── */
+#footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid #2a2f3e;
+    font-size: 0.72rem;
+    color: #555;
+    text-align: center;
+}

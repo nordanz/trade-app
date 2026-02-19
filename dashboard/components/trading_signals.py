@@ -1,7 +1,9 @@
-"""Trading Signals component."""
+"""Trading Signals – Dash component."""
 
-import streamlit as st
-import pandas as pd
+import dash
+from dash import Input, Output, State, dcc, html, dash_table
+import dash_bootstrap_components as dbc
+
 from services.strategies import DAY_TRADING_STRATEGIES, SWING_TRADING_STRATEGIES
 from utils.helpers import (
     format_price,
@@ -10,232 +12,245 @@ from utils.helpers import (
     calculate_risk_reward_ratio,
 )
 
-_STRATEGY_LABELS: dict[str, str] = {
-    # Day trading
-    'vwap':           '🎯 VWAP',
-    'orb':            '🔓 Opening Range Breakout',
-    'momentum':       '🚀 Momentum / Gap-and-Go',
-    # Swing trading
-    'mean_reversion': '↩️ Mean Reversion (BB)',
-    'fibonacci':      '📐 Fibonacci Retracement',
-    'breakout':       '💥 Breakout',
+_LABELS = {
+    "vwap":           "🎯 VWAP",
+    "orb":            "🔓 Opening Range Breakout",
+    "momentum":       "🚀 Momentum / Gap-and-Go",
+    "mean_reversion": "↩️ Mean Reversion (BB)",
+    "fibonacci":      "📐 Fibonacci Retracement",
+    "breakout":       "💥 Breakout",
 }
+_DAY_KEYS   = list(DAY_TRADING_STRATEGIES.keys())
+_SWING_KEYS = list(SWING_TRADING_STRATEGIES.keys())
 
-_DAY_STRATEGY_KEYS = list(DAY_TRADING_STRATEGIES.keys())
-_SWING_STRATEGY_KEYS = list(SWING_TRADING_STRATEGIES.keys())
+
+def layout(services, watchlist: list) -> html.Div:
+    sym_options = [{"label": s, "value": s} for s in (watchlist or ["AAPL"])]
+
+    return html.Div([
+        dcc.Store(id="ts-signals-store"),
+        dcc.Store(id="ts-watchlist-store", data=watchlist),
+
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Strategy Type"),
+                dbc.RadioItems(
+                    id="ts-strat-type",
+                    options=[
+                        {"label": "Swing Trading", "value": "swing"},
+                        {"label": "Day Trading",   "value": "day"},
+                    ],
+                    value="swing",
+                    inline=True,
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Label("Strategy"),
+                dcc.Dropdown(
+                    id="ts-strategy",
+                    options=[{"label": _LABELS.get(k, k), "value": k} for k in _SWING_KEYS],
+                    value=_SWING_KEYS[0] if _SWING_KEYS else None,
+                    clearable=False,
+                    style={"color": "#000"},
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Label("Scope"),
+                dbc.Switch(
+                    id="ts-portfolio-only",
+                    label="Portfolio symbols only",
+                    value=False,
+                ),
+            ], md=4),
+        ], className="g-3 mb-3"),
+
+        dbc.Button(
+            "🔍 Generate Signals",
+            id="ts-run-btn",
+            color="primary",
+            className="mb-3 w-100",
+        ),
+
+        dbc.Spinner(html.Div(id="ts-body"), color="primary"),
+
+        html.Hr(),
+        html.H6("📜 Signal History", style={"marginBottom": "0.5rem"}),
+        dcc.Dropdown(
+            id="ts-history-limit",
+            options=[{"label": f"{n} signals", "value": n} for n in [10, 20, 50]],
+            value=20,
+            clearable=False,
+            style={"color": "#000", "width": "200px"},
+        ),
+        html.Div(id="ts-history", style={"marginTop": "0.75rem"}),
+    ])
 
 
-def render_trading_signals(services, watchlist=None):
-    """Render the Trading Signals tab."""
+def register_callbacks(app, services):
 
-    # ── Strategy selector ────────────────────────────────────────────────────
-    col_type, col_strat = st.columns(2)
-    with col_type:
-        strategy_type = st.radio(
-            "Strategy type",
-            ["Swing Trading", "Day Trading"],
-            horizontal=True,
-            key="ts_strategy_type",
-        )
-    with col_strat:
-        keys = _SWING_STRATEGY_KEYS if strategy_type == "Swing Trading" else _DAY_STRATEGY_KEYS
-        selected_strategy = st.selectbox(
-            "Strategy",
-            options=keys,
-            format_func=lambda k: _STRATEGY_LABELS.get(k, k),
-            key="ts_strategy_name",
-        )
-
-    if strategy_type == "Day Trading":
-        st.caption("⚠️ Data delayed ~15 min (Yahoo Finance). For research only — not live execution.")
-
-    st.divider()
-
-    # ── Symbol scope ─────────────────────────────────────────────────────────
-    show_portfolio_only = st.checkbox(
-        "💼 Show signals for my portfolio only",
-        value=False,
-        key="ts_portfolio_only",
+    @app.callback(
+        Output("ts-strategy", "options"),
+        Output("ts-strategy", "value"),
+        Input("ts-strat-type", "value"),
     )
+    def _swap_strategies(strat_type):
+        if strat_type == "day":
+            opts = [{"label": _LABELS.get(k, k), "value": k} for k in _DAY_KEYS]
+            return opts, (_DAY_KEYS[0] if _DAY_KEYS else None)
+        opts = [{"label": _LABELS.get(k, k), "value": k} for k in _SWING_KEYS]
+        return opts, (_SWING_KEYS[0] if _SWING_KEYS else None)
 
-    if show_portfolio_only:
-        portfolio_symbols = services['portfolio'].get_portfolio_symbols()
-        if not portfolio_symbols:
-            st.info("Your portfolio is empty. Add positions in the 'My Portfolio' tab.")
-            return
-        symbols_to_analyze = portfolio_symbols
-        st.info(f"Analyzing {len(portfolio_symbols)} stock(s) from your portfolio.")
-    else:
-        symbols_to_analyze = watchlist if watchlist else []
-        if not symbols_to_analyze:
-            st.info("Add stocks to your watchlist to see trading signals.")
-            return
-
-    # ── Generate signals ─────────────────────────────────────────────────────
-    # Detect if key inputs changed so we can invalidate the cache automatically
-    _cache_key = f"{selected_strategy}|{','.join(sorted(symbols_to_analyze))}"
-    _stale = st.session_state.get('ts_cache_key') != _cache_key
-
-    run_btn = st.button(
-        "🔍 Generate Signals",
-        type="primary",
-        use_container_width=True,
-        key="ts_run_btn",
+    @app.callback(
+        Output("ts-body", "children"),
+        Input("ts-run-btn", "n_clicks"),
+        State("ts-strategy",       "value"),
+        State("ts-portfolio-only", "value"),
+        State("ts-watchlist-store", "data"),
+        prevent_initial_call=True,
     )
-
-    if run_btn or _stale:
-        with st.spinner(f"Analyzing {len(symbols_to_analyze)} symbol(s) with "
-                        f"{_STRATEGY_LABELS.get(selected_strategy, selected_strategy)}…"):
-            signals = services['strategy'].get_signals_for_multiple_stocks(
-                symbols_to_analyze,
-                strategy_name=selected_strategy,
-            )
-        if signals:
-            st.session_state['ts_signals'] = signals
-            st.session_state['ts_cache_key'] = _cache_key
+    def _generate(_, strategy, portfolio_only, watchlist):
+        watchlist = watchlist or []
+        if portfolio_only:
+            symbols = services["portfolio"].get_portfolio_symbols()
+            if not symbols:
+                return dbc.Alert("Your portfolio is empty.", color="info")
         else:
-            st.session_state.pop('ts_signals', None)
-            st.warning("Unable to generate signals. Please try again.")
-            return
+            symbols = watchlist
+            if not symbols:
+                return dbc.Alert("Add stocks to your watchlist first.", color="info")
 
-    signals = st.session_state.get('ts_signals')
-    if not signals:
-        st.info("Click **Generate Signals** to analyse your watchlist.")
-        return
+        try:
+            signals = services["strategy"].get_signals_for_multiple_stocks(
+                symbols, strategy_name=strategy
+            )
+        except Exception as e:
+            return dbc.Alert(f"Error generating signals: {e}", color="danger")
 
-    portfolio_positions = {p['symbol']: p for p in services['portfolio'].get_all_positions()}
+        if not signals:
+            return dbc.Alert("No signals returned.", color="warning")
 
-    # ── Top opportunities ────────────────────────────────────────────────────
-    st.subheader("🌟 Top Opportunities")
-    top_opportunities = services['strategy'].filter_top_opportunities(signals)
+        portfolio_positions = {
+            p["symbol"]: p
+            for p in services["portfolio"].get_all_positions()
+        }
+        top = services["strategy"].filter_top_opportunities(signals)
 
-    if top_opportunities:
-        for signal in top_opportunities:
-            signal_emoji = get_signal_emoji(signal.signal.value)
-            in_portfolio = signal.symbol in portfolio_positions
-            portfolio_badge = "  💼 **IN PORTFOLIO**" if in_portfolio else ""
+        top_cards = []
+        for sig in top:
+            emoji = get_signal_emoji(sig.signal.value)
+            in_port = sig.symbol in portfolio_positions
+            rr = calculate_risk_reward_ratio(
+                sig.entry_price, sig.target_price, sig.stop_loss
+            )
+            badge = dbc.Badge("💼 In Portfolio", color="info",
+                              className="ms-2") if in_port else ""
+            color = (
+                "success" if sig.signal.value == "BUY"
+                else "danger" if sig.signal.value == "SELL"
+                else "secondary"
+            )
+            top_cards.append(dbc.Card([
+                dbc.CardHeader(html.Span([
+                    html.Strong(f"{emoji} {sig.signal.value} — {sig.symbol}"),
+                    badge,
+                ])),
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col(_kv("Entry",      format_price(sig.entry_price)),  md=3),
+                        dbc.Col(_kv("Target",     format_price(sig.target_price)), md=3),
+                        dbc.Col(_kv("Stop Loss",  format_price(sig.stop_loss)),    md=3),
+                        dbc.Col(_kv("Confidence", f"{sig.confidence:.0f}%"),       md=3),
+                    ], className="g-3 mb-2"),
+                    html.Small([
+                        html.Strong("Holding: "), sig.holding_period, "  |  ",
+                        html.Strong("R/R: "), f"1:{rr:.2f}",
+                    ], style={"color": "#888"}),
+                    dbc.Alert(sig.reasoning, color=color,
+                              style={"marginTop": "0.5rem", "padding": "0.4rem 0.75rem",
+                                     "fontSize": "0.85rem"}),
+                ]),
+            ], style={"backgroundColor": "#161b27", "border": "1px solid #2a2f3e",
+                      "marginBottom": "0.75rem"}))
 
-            with st.container():
-                st.markdown(
-                    f"### {signal_emoji} {signal.signal.value} — {signal.symbol}{portfolio_badge}"
-                )
+        # All-signals table
+        rows = [
+            {
+                "Symbol":     ("💼 " if sym in portfolio_positions else "") + sym,
+                "Signal":     f"{get_signal_emoji(sig.signal.value)} {sig.signal.value}",
+                "Confidence": f"{sig.confidence:.0f}%",
+                "Entry":      format_price(sig.entry_price),
+                "Target":     format_price(sig.target_price),
+                "Stop Loss":  format_price(sig.stop_loss),
+                "Holding":    sig.holding_period,
+            }
+            for sym, sig in signals.items()
+        ]
 
-                # Portfolio-aware recommendation
-                if in_portfolio:
-                    position = portfolio_positions[signal.symbol]
-                    shares_owned = position['shares']
-                    avg_buy_price = position['avg_buy_price']
-                    pl_pct = (signal.entry_price - avg_buy_price) / avg_buy_price * 100
+        tbl = dash_table.DataTable(
+            data=rows,
+            columns=[{"name": c, "id": c} for c in rows[0]],
+            sort_action="native",
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "backgroundColor": "#161b27", "color": "#e0e0e0",
+                "border": "1px solid #2a2f3e", "padding": "6px 12px",
+                "fontSize": "0.82rem",
+            },
+            style_header={
+                "backgroundColor": "#1e2536", "fontWeight": "bold",
+                "border": "1px solid #2a2f3e",
+            },
+        )
 
-                    if signal.signal.value == "SELL":
-                        st.info(
-                            f"**💡 Recommendation:** Consider selling your {shares_owned} shares  \n"
-                            f"- Bought at: {format_price(avg_buy_price)}  \n"
-                            f"- Current price: {format_price(signal.entry_price)}  \n"
-                            f"- Target sell: {format_price(signal.target_price)}  \n"
-                            f"- Unrealised P/L: {format_percentage(pl_pct)}"
-                        )
-                    elif signal.signal.value == "BUY":
-                        st.info(
-                            f"**💡 Recommendation:** Consider adding to your position  \n"
-                            f"- Current: {shares_owned} shares @ avg {format_price(avg_buy_price)}  \n"
-                            f"- Suggested entry: {format_price(signal.entry_price)}  \n"
-                            f"- {'Would lower' if signal.entry_price < avg_buy_price else 'Would raise'} "
-                            f"your average cost"
-                        )
-                else:
-                    if signal.signal.value == "BUY":
-                        st.success(
-                            f"**💡 Recommendation:** Consider opening a new position in {signal.symbol}"
-                        )
+        return html.Div([
+            html.H6("🌟 Top Opportunities", style={"marginBottom": "0.75rem"}),
+            *top_cards,
+            html.H6("📊 All Signals", style={"margin": "1.5rem 0 0.5rem"}),
+            tbl,
+        ])
 
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Entry", format_price(signal.entry_price))
-                c2.metric("Target", format_price(signal.target_price))
-                c3.metric("Stop Loss", format_price(signal.stop_loss))
-                c4.metric("Confidence", f"{signal.confidence:.0f}%")
-
-                rr_ratio = calculate_risk_reward_ratio(
-                    signal.entry_price, signal.target_price, signal.stop_loss
-                )
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.caption(f"**Holding Period:** {signal.holding_period}")
-                with col2:
-                    st.caption(f"**Risk/Reward:** 1:{rr_ratio:.2f}")
-                with col3:
-                    if st.button("💾 Save Signal", key=f"save_{signal.symbol}_{selected_strategy}"):
-                        try:
-                            services['portfolio'].save_signal(
-                                signal.symbol,
-                                signal.signal.value,
-                                signal.confidence,
-                                signal.entry_price,
-                                signal.target_price,
-                                signal.stop_loss,
-                                signal.reasoning,
-                            )
-                            st.success("Signal saved to history!")
-                        except Exception as e:
-                            st.error(f"Error saving signal: {e}")
-
-                st.info(f"**Reasoning:** {signal.reasoning}")
-
-                with st.expander("📊 Technical Indicators"):
-                    ind1, ind2, ind3 = st.columns(3)
-                    rsi_val = signal.indicators.get('rsi')
-                    ind1.metric("RSI", f"{rsi_val:.1f}" if rsi_val else "N/A")
-                    ind2.metric("Trend", signal.indicators.get('trend', 'N/A'))
-                    vol = signal.indicators.get('volume', {})
-                    ind3.metric("Volume", vol.get('volume_trend', 'N/A'))
-
-                st.markdown("---")
-    else:
-        st.info("No strong buy signals at the moment for this strategy. Check back later!")
-
-    st.divider()
-
-    # ── All signals table ────────────────────────────────────────────────────
-    st.subheader("📊 All Signals")
-
-    signal_rows = []
-    for sym, sig in signals.items():
-        signal_rows.append({
-            "Symbol": ("💼 " if sym in portfolio_positions else "") + sym,
-            "Signal": f"{get_signal_emoji(sig.signal.value)} {sig.signal.value}",
-            "Confidence": f"{sig.confidence:.0f}%",
-            "Entry": format_price(sig.entry_price),
-            "Target": format_price(sig.target_price),
-            "Stop Loss": format_price(sig.stop_loss),
-            "Holding": sig.holding_period,
-        })
-
-    if signal_rows:
-        st.dataframe(pd.DataFrame(signal_rows), use_container_width=True, hide_index=True)
-
-    # ── Signal history ───────────────────────────────────────────────────────
-    st.divider()
-    st.subheader("📜 Signal History")
-
-    history_limit = st.slider(
-        "Number of signals to show", 5, 50, 20, key="ts_history_limit"
+    @app.callback(
+        Output("ts-history", "children"),
+        Input("ts-history-limit", "value"),
+        Input("ts-run-btn", "n_clicks"),
     )
-    signal_history = services['portfolio'].get_signals(limit=history_limit)
+    def _history(limit, _):
+        history = services["portfolio"].get_signals(limit=limit or 20)
+        if not history:
+            return dbc.Alert("No signal history yet. Generate signals to track them here.",
+                             color="secondary")
+        rows = [
+            {
+                "Date":       h["signal_date"],
+                "Symbol":     h["symbol"],
+                "Signal":     f"{get_signal_emoji(h['signal_type'])} {h['signal_type']}",
+                "Entry":      format_price(h["entry_price"]),
+                "Target":     format_price(h["target_price"]),
+                "Confidence": f"{h['confidence']:.0f}%",
+                "Status":     h["status"],
+                "P/L":        format_percentage(h["profit_loss"]) if h.get("profit_loss") else "—",
+            }
+            for h in history
+        ]
+        return dash_table.DataTable(
+            data=rows,
+            columns=[{"name": c, "id": c} for c in rows[0]],
+            style_table={"overflowX": "auto"},
+            style_cell={
+                "backgroundColor": "#161b27", "color": "#e0e0e0",
+                "border": "1px solid #2a2f3e", "padding": "6px 12px",
+                "fontSize": "0.82rem",
+            },
+            style_header={
+                "backgroundColor": "#1e2536", "fontWeight": "bold",
+                "border": "1px solid #2a2f3e",
+            },
+            page_size=20,
+        )
 
-    if signal_history:
-        history_rows = []
-        for sig in signal_history:
-            history_rows.append({
-                "Date": sig['signal_date'],
-                "Symbol": sig['symbol'],
-                "Signal": f"{get_signal_emoji(sig['signal_type'])} {sig['signal_type']}",
-                "Entry": format_price(sig['entry_price']),
-                "Target": format_price(sig['target_price']),
-                "Confidence": f"{sig['confidence']:.0f}%",
-                "Status": sig['status'],
-                "P/L": format_percentage(sig['profit_loss']) if sig['profit_loss'] else "N/A",
-            })
-        st.dataframe(pd.DataFrame(history_rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("No signal history yet. Save signals to track them here!")
+
+def _kv(label, value, cls=""):
+    return html.Div(className="metric-card", children=[
+        html.Div(label, className="metric-label"),
+        html.Div(value, className=f"metric-value {cls}"),
+    ])

@@ -1,429 +1,333 @@
-"""
-Swing Trading Tab - Multi-day trading interface with daily charts
-Strategies: Mean Reversion, Fibonacci Retracement, Breakout Trading
-"""
+"""Swing Trading – Dash component."""
 
-import streamlit as st
-import pandas as pd
+import dash
+from dash import Input, Output, State, dcc, html
+import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-from typing import List
 
-from services.market_data_service import MarketDataService
-from services.trading_strategy_service import TradingStrategyService
 from services.strategies import SWING_TRADING_STRATEGIES
-from models.trading_signal import SignalType
-from dashboard.components.backtest_widget import render_backtest_panel
+from utils.helpers import format_price, get_signal_emoji, calculate_risk_reward_ratio
+from dashboard.components.backtest_widget import (
+    backtest_panel_layout,
+    register_backtest_callbacks,
+)
+
+_STRATEGY_LABELS = {
+    "mean_reversion": "↩️ Mean Reversion (BB)",
+    "fibonacci":      "📐 Fibonacci Retracement",
+    "breakout":       "💥 Breakout Trading",
+}
+_STRATEGY_DESCRIPTIONS = {
+    "mean_reversion": "Entry: Price at Bollinger Band extreme + RSI oversold/overbought. Exit: Reversion to middle band.",
+    "fibonacci":      "Entry: Pullback to 38.2%, 50%, or 61.8% Fib level. Exit: 1.618 extension or trend reversal.",
+    "breakout":       "Entry: Break above/below support/resistance with volume >2× + ADX >25. Exit: 2× risk target.",
+}
+_QUICK_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "META", "AMZN"]
 
 
-def render_swing_trading_page(services=None):
-    """Render the swing trading interface."""
-    
-    # Use shared services or create new ones as fallback
-    if services:
-        market_service = services['market']
-        strategy_service = services['strategy']
-    else:
-        market_service = MarketDataService()
-        strategy_service = TradingStrategyService()
-    
-    # Strategy selector
-    col1, col2, col3 = st.columns([2, 2, 1])
-    
-    with col1:
-        selected_strategy = st.selectbox(
-            "📊 Select Swing Trading Strategy",
-            options=list(SWING_TRADING_STRATEGIES.keys()),
-            format_func=lambda x: {
-                'mean_reversion': '↩️ Mean Reversion (Bollinger Bands)',
-                'fibonacci': '📐 Fibonacci Retracement',
-                'breakout': '💥 Breakout Trading'
-            }.get(x, x),
-            key="swing_trading_strategy_select"
-        )
-    
-    with col2:
-        period = st.selectbox(
-            "📅 Chart Period",
-            options=['1mo', '3mo', '6mo', '1y'],
-            index=1,  # Default to 3mo
-            key="swing_trading_period_select"
-        )
-    
-    with col3:
-        include_news = st.checkbox("📰 News", value=True, key="swing_trading_include_news")
-    
-    # Strategy description
-    strategy_descriptions = {
-        'mean_reversion': """
-        **Mean Reversion (Bollinger Bands)**
-        - Entry: Price at BB extremes + RSI oversold/overbought
-        - Exit: Reversion to middle band
-        - Best for: Range-bound stocks with clear support/resistance
-        """,
-        'fibonacci': """
-        **Fibonacci Retracement**
-        - Entry: Pullback to 38.2%, 50%, or 61.8% Fib level
-        - Exit: Extension to 1.618 or trend reversal
-        - Best for: Trending stocks with clear swing highs/lows
-        """,
-        'breakout': """
-        **Breakout Trading**
-        - Entry: Break above/below support/resistance with volume
-        - Exit: 2x risk target or trailing ATR stop
-        - Best for: Consolidating stocks before strong moves
-        """
-    }
-    
-    with st.expander("ℹ️ Strategy Details"):
-        st.markdown(strategy_descriptions.get(selected_strategy, ""))
-    
-    # Symbol input
-    st.divider()
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        symbol = st.text_input(
-            "🎯 Stock Symbol",
-            value="AAPL",
-            placeholder="Enter stock symbol (e.g., AAPL, TSLA, SPY)",
-            key="swing_trading_symbol_input"
-        ).upper()
-    
-    with col2:
-        st.write("")
-        st.write("")
-        scan_button = st.button("🔍 Generate Signal", type="primary", use_container_width=True)
-    
-    # Quick symbol buttons
-    st.markdown("**Quick Select:**")
-    quick_symbols = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'NVDA', 'TSLA', 'META', 'AMZN']
-    cols = st.columns(len(quick_symbols))
-    for idx, sym in enumerate(quick_symbols):
-        if cols[idx].button(sym, use_container_width=True):
-            symbol = sym
-            scan_button = True
-    
-    # Generate signal
-    if scan_button and symbol:
-        with st.spinner(f"🔄 Analyzing {symbol} using {selected_strategy}..."):
-            signal = strategy_service.generate_signal(
+def layout(services) -> html.Div:
+    strat_opts = [
+        {"label": _STRATEGY_LABELS.get(k, k), "value": k}
+        for k in SWING_TRADING_STRATEGIES.keys()
+    ]
+
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Strategy"),
+                dcc.Dropdown(
+                    id="sw-strategy",
+                    options=strat_opts,
+                    value=list(SWING_TRADING_STRATEGIES.keys())[0],
+                    clearable=False,
+                    style={"color": "#000"},
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Label("Chart Period"),
+                dcc.Dropdown(
+                    id="sw-period",
+                    options=[
+                        {"label": "1 Month",  "value": "1mo"},
+                        {"label": "3 Months", "value": "3mo"},
+                        {"label": "6 Months", "value": "6mo"},
+                        {"label": "1 Year",   "value": "1y"},
+                    ],
+                    value="3mo",
+                    clearable=False,
+                    style={"color": "#000"},
+                ),
+            ], md=2),
+            dbc.Col([
+                dbc.Label("News Sentiment"),
+                dbc.Switch(id="sw-news", value=True, label="Include"),
+            ], md=2),
+        ], className="g-3 mb-2"),
+
+        html.Div(id="sw-strat-desc",
+                 style={"color": "#888", "fontSize": "0.82rem", "marginBottom": "1rem"}),
+
+        dbc.Row([
+            dbc.Col([
+                dbc.Input(
+                    id="sw-symbol",
+                    value="AAPL",
+                    placeholder="e.g. AAPL",
+                    style={
+                        "backgroundColor": "#161b27",
+                        "color":           "#e0e0e0",
+                        "borderColor":     "#2a2f3e",
+                    },
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Button(
+                    "🔍 Generate Signal",
+                    id="sw-run-btn",
+                    color="primary",
+                    className="w-100",
+                ),
+            ], md=2),
+        ], className="g-3 mb-2"),
+
+        html.Div([
+            html.Small("Quick select: ", style={"color": "#888"}),
+            *[
+                dbc.Button(
+                    sym,
+                    id={"type": "sw-quick", "sym": sym},
+                    size="sm",
+                    color="secondary",
+                    outline=True,
+                    className="me-1 mb-1",
+                    n_clicks=0,
+                )
+                for sym in _QUICK_SYMBOLS
+            ],
+        ], style={"marginBottom": "1rem"}),
+
+        dbc.Spinner(html.Div(id="sw-signal-body"), color="primary"),
+
+        html.Hr(),
+        html.H6("📋 Swing Scanner"),
+        dbc.Row([
+            dbc.Col([
+                dbc.Input(
+                    id="sw-scan-input",
+                    value="SPY,QQQ,AAPL,MSFT,NVDA",
+                    placeholder="SPY, QQQ, AAPL",
+                    style={
+                        "backgroundColor": "#161b27",
+                        "color":           "#e0e0e0",
+                        "borderColor":     "#2a2f3e",
+                    },
+                ),
+            ], md=5),
+            dbc.Col([
+                dbc.Label("Min Confidence (%)"),
+                dcc.Slider(
+                    id="sw-scan-conf",
+                    min=50, max=90, step=5, value=65,
+                    marks={50: "50", 65: "65", 80: "80", 90: "90"},
+                    tooltip={"placement": "bottom"},
+                ),
+            ], md=4),
+            dbc.Col([
+                dbc.Button(
+                    "🔍 Scan Watchlist",
+                    id="sw-scan-btn",
+                    color="secondary",
+                    className="w-100",
+                ),
+            ], md=3),
+        ], className="g-3 mb-2"),
+
+        dbc.Spinner(html.Div(id="sw-scan-body"), color="secondary"),
+
+        backtest_panel_layout(prefix="sw", is_intraday=False),
+    ])
+
+
+def register_callbacks(app, services):
+
+    register_backtest_callbacks(
+        app, services,
+        prefix="sw",
+        symbol_state_id="sw-symbol",
+        strategy_state_id="sw-strategy",
+        is_intraday=False,
+    )
+
+    @app.callback(
+        Output("sw-strat-desc", "children"),
+        Input("sw-strategy", "value"),
+    )
+    def _desc(strategy):
+        return _STRATEGY_DESCRIPTIONS.get(strategy, "")
+
+    @app.callback(
+        Output("sw-symbol", "value"),
+        Input({"type": "sw-quick", "sym": dash.ALL}, "n_clicks"),
+        State("sw-symbol", "value"),
+        prevent_initial_call=True,
+    )
+    def _quick_select(_clicks, current):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return current
+        import json
+        btn_id = json.loads(ctx.triggered[0]["prop_id"].rsplit(".", 1)[0])
+        return btn_id["sym"]
+
+    @app.callback(
+        Output("sw-signal-body", "children"),
+        Input("sw-run-btn",  "n_clicks"),
+        State("sw-symbol",   "value"),
+        State("sw-strategy", "value"),
+        State("sw-period",   "value"),
+        State("sw-news",     "value"),
+        prevent_initial_call=True,
+    )
+    def _run_signal(_, symbol, strategy, period, include_news):
+        symbol = (symbol or "AAPL").strip().upper()
+        try:
+            signal = services["strategy"].generate_signal(
                 symbol=symbol,
-                strategy_name=selected_strategy,
-                timeframe='1d',
-                include_news=include_news
+                strategy_name=strategy,
+                timeframe="1d",
+                include_news=bool(include_news),
             )
-            if signal:
-                st.session_state['swing_trading_signal'] = signal
-                st.session_state['swing_trading_signal_symbol'] = symbol
-                st.session_state['swing_trading_signal_strategy'] = selected_strategy
-                st.session_state['swing_trading_signal_period'] = period
-            else:
-                st.session_state.pop('swing_trading_signal', None)
-                st.error(f"❌ Could not generate signal for {symbol}. Please check the symbol and try again.")
+        except Exception as e:
+            return dbc.Alert(f"Error: {e}", color="danger")
 
-    # Display persisted signal (survives reruns / auto-refresh)
-    if 'swing_trading_signal' in st.session_state:
-        cached_signal = st.session_state['swing_trading_signal']
-        cached_symbol = st.session_state.get('swing_trading_signal_symbol', symbol)
-        cached_strategy = st.session_state.get('swing_trading_signal_strategy', selected_strategy)
-        cached_period = st.session_state.get('swing_trading_signal_period', period)
-        _display_signal(cached_signal, cached_strategy)
-        _display_daily_chart(cached_symbol, cached_period, market_service, cached_signal, cached_strategy)
-        # ── Inline backtest panel ─────────────────────────────────
-        st.divider()
-        render_backtest_panel(
-            services,
-            symbol=cached_symbol,
-            strategy_name=cached_strategy,
-            key_prefix="swing_",
-        )
-    
-    # Watchlist scanner
-    st.divider()
-    st.subheader("📋 Swing Trading Scanner")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        watchlist_input = st.text_input(
-            "Enter symbols (comma-separated)",
-            value="SPY,QQQ,IWM,DIA,AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA",
-            placeholder="SPY, QQQ, AAPL, MSFT",
-            key="swing_trading_watchlist_input"
-        )
-    
-    with col2:
-        min_confidence = st.slider("Min Confidence", 50, 90, 70, key="swing_trading_min_confidence")
-    
-    if st.button("🔍 Scan Watchlist", use_container_width=True, key="swing_trading_scan_btn"):
-        watchlist = [s.strip().upper() for s in watchlist_input.split(',') if s.strip()]
-        
-        with st.spinner(f"Scanning {len(watchlist)} symbols..."):
-            signals = strategy_service.scan_multiple_symbols(
-                symbols=watchlist,
-                strategy_name=selected_strategy,
-                timeframe='1d',
-                min_confidence=min_confidence
+        if not signal:
+            return dbc.Alert(
+                f"Could not generate a signal for {symbol}. Check the symbol and try again.",
+                color="warning",
             )
-            if signals:
-                st.session_state['swing_trading_scan_signals'] = signals
-                st.session_state['swing_trading_scan_confidence'] = min_confidence
-            else:
-                st.session_state.pop('swing_trading_scan_signals', None)
-                st.warning(f"⚠️ No signals found above {min_confidence}% confidence")
 
-    # Display persisted scan results (survives reruns / auto-refresh)
-    if 'swing_trading_scan_signals' in st.session_state:
-        cached_signals = st.session_state['swing_trading_scan_signals']
-        cached_conf = st.session_state.get('swing_trading_scan_confidence', min_confidence)
-        st.success(f"✅ Found {len(cached_signals)} signals above {cached_conf}% confidence")
-        _display_watchlist_results(cached_signals)
+        # Chart
+        try:
+            hist = services["market"].get_historical_data(symbol, period=period)
+        except Exception:
+            hist = None
 
+        chart = html.Div()
+        if hist is not None and not hist.empty:
+            ma20 = hist["Close"].rolling(20).mean()
+            ma50 = hist["Close"].rolling(50).mean()
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(
+                x=hist.index,
+                open=hist["Open"], high=hist["High"],
+                low=hist["Low"],   close=hist["Close"],
+                name=symbol,
+                increasing_line_color="#26a69a",
+                decreasing_line_color="#ef5350",
+            ))
+            fig.add_trace(go.Scatter(x=hist.index, y=ma20, name="MA 20",
+                                     line=dict(color="#ff9800", width=1.2)))
+            fig.add_trace(go.Scatter(x=hist.index, y=ma50, name="MA 50",
+                                     line=dict(color="#4fc3f7", width=1.2)))
+            if signal.entry_price:
+                fig.add_hline(y=signal.entry_price, line_color="#4fc3f7",
+                              line_dash="dash", annotation_text="Entry")
+            if signal.stop_loss:
+                fig.add_hline(y=signal.stop_loss, line_color="#ef5350",
+                              line_dash="dot", annotation_text="Stop")
+            if signal.target_price:
+                fig.add_hline(y=signal.target_price, line_color="#26a69a",
+                              line_dash="dot", annotation_text="Target")
+            fig.update_layout(
+                paper_bgcolor="#0f1117", plot_bgcolor="#0f1117",
+                font_color="#e0e0e0",
+                margin=dict(l=0, r=0, t=30, b=0), height=340,
+                xaxis_rangeslider_visible=False,
+                legend=dict(orientation="h", y=1.04),
+            )
+            fig.update_xaxes(gridcolor="#1e2536")
+            fig.update_yaxes(gridcolor="#1e2536")
+            chart = dcc.Graph(figure=fig, config={"displayModeBar": False})
 
-def _display_signal(signal, strategy_name: str):
-    """Display the trading signal in a nice format."""
-    
-    # Signal header with color coding
-    if signal.signal == SignalType.BUY:
-        st.success("### 🟢 BUY SIGNAL")
-    elif signal.signal == SignalType.SELL:
-        st.error("### 🔴 SELL SIGNAL")
-    else:
-        st.info("### 🟡 HOLD - No Clear Signal")
-    
-    # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Confidence", f"{signal.confidence:.1f}%")
-    
-    with col2:
-        st.metric("Entry Price", f"${signal.entry_price:.2f}")
-    
-    with col3:
-        st.metric("Stop Loss", f"${signal.stop_loss:.2f}")
-    
-    with col4:
-        st.metric("Take Profit", f"${signal.target_price:.2f}")
-    
-    # Risk/Reward calculation
-    if signal.signal in [SignalType.BUY, SignalType.SELL]:
-        risk = abs(signal.entry_price - signal.stop_loss)
-        reward = abs(signal.target_price - signal.entry_price)
-        risk_reward = reward / risk if risk > 0 else 0
-        
-        risk_pct = (risk / signal.entry_price) * 100
-        reward_pct = (reward / signal.entry_price) * 100
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Risk", f"${risk:.2f} ({risk_pct:.1f}%)")
-        with col2:
-            st.metric("Reward", f"${reward:.2f} ({reward_pct:.1f}%)")
-        with col3:
-            st.metric("R:R Ratio", f"1:{risk_reward:.2f}")
-        with col4:
-            holding_period = "3-7 days"
-            st.metric("Hold Period", holding_period)
-    
-    # Reasoning
-    st.markdown("**📝 Signal Reasoning:**")
-    st.info(signal.reasoning)
-    
-    # News analysis if available
-    if signal.news_analysis:
-        with st.expander("📰 News Analysis"):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(f"**Sentiment:** {signal.news_analysis.sentiment.value}")
-            with col2:
-                st.markdown(f"**Score:** {signal.news_analysis.sentiment_score:.2f}")
-            with col3:
-                st.markdown(f"**Relevance:** {signal.news_analysis.relevance:.0f}%")
-            
-            if signal.news_analysis.macro_impact:
-                st.warning("⚠️ **Macro Impact Detected** - This news may affect broader market trends")
-            
-            st.markdown(f"**Summary:**")
-            st.markdown(signal.news_analysis.summary)
-
-
-def _display_daily_chart(symbol: str, period: str, market_service, signal, strategy_name: str):
-    """Display daily chart with indicators and signal markers."""
-    
-    st.subheader(f"📊 {symbol} - Daily Chart ({period})")
-    
-    # Fetch daily data
-    data = market_service.get_historical_data(
-        symbol,
-        period=period,
-        interval='1d'
-    )
-    
-    if data is None or data.empty:
-        st.warning("No chart data available")
-        return
-    
-    # Create candlestick chart
-    fig = go.Figure()
-    
-    fig.add_trace(go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        name=symbol
-    ))
-    
-    # Add strategy-specific indicators
-    if 'mean_reversion' in strategy_name:
-        # Bollinger Bands
-        close = data['Close']
-        bb_middle = close.rolling(window=20).mean()
-        bb_std = close.rolling(window=20).std()
-        bb_upper = bb_middle + (bb_std * 2)
-        bb_lower = bb_middle - (bb_std * 2)
-        
-        fig.add_trace(go.Scatter(x=data.index, y=bb_upper, mode='lines', 
-                                name='BB Upper', line=dict(color='gray', dash='dash')))
-        fig.add_trace(go.Scatter(x=data.index, y=bb_middle, mode='lines',
-                                name='BB Middle', line=dict(color='orange')))
-        fig.add_trace(go.Scatter(x=data.index, y=bb_lower, mode='lines',
-                                name='BB Lower', line=dict(color='gray', dash='dash')))
-    
-    elif 'fibonacci' in strategy_name:
-        # Fibonacci levels
-        recent_high = data['High'].tail(50).max()
-        recent_low = data['Low'].tail(50).min()
-        diff = recent_high - recent_low
-        
-        fib_levels = {
-            '0%': recent_high,
-            '23.6%': recent_high - (diff * 0.236),
-            '38.2%': recent_high - (diff * 0.382),
-            '50%': recent_high - (diff * 0.5),
-            '61.8%': recent_high - (diff * 0.618),
-            '100%': recent_low
-        }
-        
-        colors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple']
-        for idx, (level, price) in enumerate(fib_levels.items()):
-            fig.add_hline(y=price, line_dash="dot", line_color=colors[idx],
-                         annotation_text=f"Fib {level}")
-    
-    elif 'breakout' in strategy_name:
-        # Support and Resistance
-        recent_high = data['High'].tail(20).max()
-        recent_low = data['Low'].tail(20).min()
-        
-        fig.add_hline(y=recent_high, line_dash="dash", line_color="red",
-                     annotation_text="Resistance")
-        fig.add_hline(y=recent_low, line_dash="dash", line_color="green",
-                     annotation_text="Support")
-    
-    # Add moving averages
-    sma_20 = data['Close'].rolling(window=20).mean()
-    sma_50 = data['Close'].rolling(window=50).mean()
-    
-    fig.add_trace(go.Scatter(x=data.index, y=sma_20, mode='lines',
-                            name='SMA 20', line=dict(color='blue', width=1)))
-    fig.add_trace(go.Scatter(x=data.index, y=sma_50, mode='lines',
-                            name='SMA 50', line=dict(color='purple', width=1)))
-    
-    # Add signal markers
-    if signal.signal in [SignalType.BUY, SignalType.SELL]:
-        marker_color = 'green' if signal.signal == SignalType.BUY else 'red'
-        marker_symbol = 'triangle-up' if signal.signal == SignalType.BUY else 'triangle-down'
-        
-        fig.add_trace(go.Scatter(
-            x=[data.index[-1]],
-            y=[signal.entry_price],
-            mode='markers+text',
-            name='Entry',
-            marker=dict(size=20, color=marker_color, symbol=marker_symbol),
-            text=['ENTRY'],
-            textposition='top center'
-        ))
-        
-        # Add stop loss and take profit lines
-        fig.add_hline(y=signal.stop_loss, line_dash="dash", line_color="red",
-                     annotation_text=f"Stop: ${signal.stop_loss:.2f}", annotation_position="right")
-        fig.add_hline(y=signal.target_price, line_dash="dash", line_color="green",
-                     annotation_text=f"Target: ${signal.target_price:.2f}", annotation_position="right")
-    
-    # Volume subplot
-    colors = ['red' if close < open else 'green' 
-              for close, open in zip(data['Close'], data['Open'])]
-    
-    fig.add_trace(go.Bar(
-        x=data.index,
-        y=data['Volume'],
-        name='Volume',
-        marker_color=colors,
-        yaxis='y2',
-        opacity=0.3
-    ))
-    
-    fig.update_layout(
-        title=f"{symbol} Daily Chart - {strategy_name.replace('_', ' ').title()}",
-        yaxis_title="Price ($)",
-        yaxis2=dict(title="Volume", overlaying='y', side='right'),
-        xaxis_title="Date",
-        height=600,
-        xaxis_rangeslider_visible=False,
-        hovermode='x unified'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def _display_watchlist_results(signals: List):
-    """Display watchlist scan results in a table."""
-    
-    # Create dataframe
-    data = []
-    for signal in signals:
-        risk = abs(signal.entry_price - signal.stop_loss)
-        reward = abs(signal.target_price - signal.entry_price)
-        rr = reward / risk if risk > 0 else 0
-        
-        data.append({
-            'Symbol': signal.symbol,
-            'Signal': signal.signal.value,
-            'Confidence': f"{signal.confidence:.1f}%",
-            'Entry': f"${signal.entry_price:.2f}",
-            'Stop': f"${signal.stop_loss:.2f}",
-            'Target': f"${signal.target_price:.2f}",
-            'R:R': f"1:{rr:.1f}",
-            'Reasoning': signal.reasoning[:60] + "..." if len(signal.reasoning) > 60 else signal.reasoning
-        })
-    
-    df = pd.DataFrame(data)
-    
-    # Color code signals
-    def highlight_signal(val):
-        if val == 'BUY':
-            return 'background-color: #90EE90'
-        elif val == 'SELL':
-            return 'background-color: #FFB6C1'
-        return ''
-    
-    st.dataframe(
-        df.style.applymap(highlight_signal, subset=['Signal']),
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # Export options
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        csv = df.to_csv(index=False)
-        st.download_button(
-            label="📥 Export CSV",
-            data=csv,
-            file_name=f"swing_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
+        emoji = get_signal_emoji(signal.signal.value)
+        color = ("success" if signal.signal.value == "BUY"
+                 else "danger" if signal.signal.value == "SELL"
+                 else "secondary")
+        rr    = calculate_risk_reward_ratio(
+            signal.entry_price, signal.target_price, signal.stop_loss
         )
+
+        return html.Div([
+            dbc.Alert(f"{emoji} {signal.signal.value} — {symbol}", color=color,
+                      style={"fontWeight": "bold"}),
+            dbc.Row([
+                dbc.Col(_kv("Entry",      format_price(signal.entry_price)),  md=3),
+                dbc.Col(_kv("Target",     format_price(signal.target_price)), md=3),
+                dbc.Col(_kv("Stop Loss",  format_price(signal.stop_loss)),    md=3),
+                dbc.Col(_kv("Confidence", f"{signal.confidence:.0f}%"),       md=3),
+            ], className="g-3 mb-2"),
+            html.Small(f"Holding: {signal.holding_period}  |  R/R: 1:{rr:.2f}",
+                       style={"color": "#888"}),
+            dbc.Alert(signal.reasoning, color=color,
+                      style={"marginTop": "0.5rem", "padding": "0.4rem 0.75rem",
+                             "fontSize": "0.85rem"}),
+            html.Div(style={"marginTop": "0.75rem"}, children=[chart]),
+        ])
+
+    @app.callback(
+        Output("sw-scan-body", "children"),
+        Input("sw-scan-btn",   "n_clicks"),
+        State("sw-scan-input", "value"),
+        State("sw-strategy",   "value"),
+        State("sw-scan-conf",  "value"),
+        prevent_initial_call=True,
+    )
+    def _scan(_, watchlist_str, strategy, min_conf):
+        symbols = [s.strip().upper() for s in (watchlist_str or "").split(",") if s.strip()]
+        if not symbols:
+            return dbc.Alert("Enter at least one symbol.", color="info")
+        try:
+            signals = services["strategy"].scan_multiple_symbols(
+                symbols=symbols,
+                strategy_name=strategy,
+                timeframe="1d",
+                min_confidence=min_conf,
+            )
+        except Exception as e:
+            return dbc.Alert(f"Scan error: {e}", color="danger")
+
+        if not signals:
+            return dbc.Alert(
+                f"No signals found above {min_conf}% confidence.", color="info"
+            )
+
+        cards = []
+        for sig in signals:
+            emoji = get_signal_emoji(sig.signal.value)
+            color = ("success" if sig.signal.value == "BUY"
+                     else "danger" if sig.signal.value == "SELL"
+                     else "secondary")
+            cards.append(dbc.Alert(
+                [
+                    html.Strong(f"{emoji} {sig.signal.value} — {sig.symbol}"),
+                    f"  |  {format_price(sig.entry_price)}  |  {sig.confidence:.0f}% confidence",
+                ],
+                color=color,
+                style={"padding": "0.4rem 0.75rem", "marginBottom": "0.4rem"},
+            ))
+
+        return html.Div([
+            dbc.Alert(
+                f"✅ Found {len(signals)} signal(s) above {min_conf}% confidence",
+                color="success",
+                style={"padding": "0.4rem 0.75rem", "fontSize": "0.85rem"},
+            ),
+            *cards,
+        ])
+
+
+def _kv(label, value, cls=""):
+    return html.Div(className="metric-card", children=[
+        html.Div(label, className="metric-label"),
+        html.Div(value, className=f"metric-value {cls}"),
+    ])

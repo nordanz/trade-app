@@ -1,318 +1,348 @@
-"""Main Streamlit dashboard application - Menu-based layout for mobile-friendly experience."""
+"""eSignal – Plotly Dash dashboard entry point."""
 
+import json
 import sys
 from pathlib import Path
 
-# Add parent directory to path to import modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import streamlit as st
-from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
+import dash
+import dash_bootstrap_components as dbc
+from dash import Dash, Input, Output, State, dcc, html
 
-# Import services
-from services.market_data_service import MarketDataService
-from services.gemini_service import GeminiService
-from services.trading_strategy_service import TradingStrategyService
-from services.portfolio_service import PortfolioDB
-from services.backtest_service import BacktestService
 from config.settings import settings
+from services.backtest_service import BacktestService
+from services.gemini_service import GeminiService
+from services.market_data_service import MarketDataService
+from services.portfolio_service import PortfolioDB
+from services.trading_strategy_service import TradingStrategyService
 
-# Import components
-from dashboard.components.market_overview import render_market_overview
-from dashboard.components.portfolio_management import render_portfolio_management
-from dashboard.components.trading_signals import render_trading_signals
-from dashboard.components.news_analysis import render_news_analysis
-from dashboard.components.charts import render_detailed_charts
-from dashboard.components.backtest_page import render_backtest_page
-from dashboard.components.day_trading_page import render_day_trading_page
-from dashboard.components.swing_trading_page import render_swing_trading_page
-from dashboard.components.news_controller_page import render_news_controller_page
-from dashboard.components.beginner_guide_page import render_beginner_guide_page
+# ── Page-component imports ────────────────────────────────────────────────────
+from dashboard.components.market_overview      import layout as market_overview_layout,   register_callbacks as market_overview_callbacks
+from dashboard.components.trading_signals      import layout as trading_signals_layout,   register_callbacks as trading_signals_callbacks
+from dashboard.components.day_trading_page     import layout as day_trading_layout,       register_callbacks as day_trading_callbacks
+from dashboard.components.swing_trading_page   import layout as swing_trading_layout,     register_callbacks as swing_trading_callbacks
+from dashboard.components.portfolio_management import layout as portfolio_layout,         register_callbacks as portfolio_callbacks
+from dashboard.components.news_analysis        import layout as news_layout,              register_callbacks as news_callbacks
+from dashboard.components.backtest_page        import layout as backtest_layout,          register_callbacks as backtest_callbacks
+from dashboard.components.charts               import layout as charts_layout,            register_callbacks as charts_callbacks
+from dashboard.components.news_controller_page import layout as nc_layout,               register_callbacks as nc_callbacks
+from dashboard.components.beginner_guide_page  import layout as guide_layout,            register_callbacks as guide_callbacks
 
-# Page configuration
-st.set_page_config(
-    page_title="eSignal Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+# ── Services (module-level singletons) ───────────────────────────────────────
+_market    = MarketDataService()
+_gemini    = GeminiService()
+_strategy  = TradingStrategyService(market_service=_market, gemini_service=_gemini)
+_portfolio = PortfolioDB()
+_backtest  = BacktestService()
+
+SERVICES = {
+    "market":    _market,
+    "gemini":    _gemini,
+    "strategy":  _strategy,
+    "portfolio": _portfolio,
+    "backtest":  _backtest,
+}
+
+# Seed default watchlist tickers on first run
+_portfolio.seed_watchlist_defaults(settings.DEFAULT_TICKERS)
+
+# ── Nav structure ─────────────────────────────────────────────────────────────
+NAV_GROUPS = {
+    "MARKET": {
+        "market-overview": ("📊", "Market Overview"),
+        "detailed-charts": ("📈", "Charts"),
+    },
+    "TRADING": {
+        "trading-signals": ("🎯", "Signals"),
+        "day-trading":     ("⚡", "Day Trading"),
+        "swing-trading":   ("🌊", "Swing Trading"),
+    },
+    "RESEARCH": {
+        "ai-news":         ("🤖", "AI News"),
+        "news-controller": ("🎛️",  "News Settings"),
+    },
+    "ACCOUNT": {
+        "portfolio":       ("💼", "Portfolio"),
+        "backtest":        ("🧪", "Backtest"),
+    },
+    "HELP": {
+        "beginners-guide": ("📚", "Beginner's Guide"),
+    },
+}
+
+PAGE_TITLES = {
+    page_id: label
+    for pages in NAV_GROUPS.values()
+    for page_id, (_, label) in pages.items()
+}
+
+ICON_MAP = {
+    page_id: icon
+    for pages in NAV_GROUPS.values()
+    for page_id, (icon, _) in pages.items()
+}
+
+# ── App ───────────────────────────────────────────────────────────────────────
+app = Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.DARKLY],
+    suppress_callback_exceptions=True,
+    title="eSignal Dashboard",
+)
+server = app.server  # expose Flask for gunicorn / production
+
+
+# ── Sidebar builder ───────────────────────────────────────────────────────────
+def _nav_items() -> list:
+    items = []
+    for group_label, pages in NAV_GROUPS.items():
+        items.append(html.P(group_label, className="nav-section-label"))
+        for page_id, (icon, label) in pages.items():
+            items.append(
+                html.Button(
+                    f"{icon}  {label}",
+                    id={"type": "nav-btn", "page": page_id},
+                    className="nav-btn",
+                    n_clicks=0,
+                )
+            )
+    return items
+
+
+def _sidebar() -> html.Div:
+    initial_watchlist = _portfolio.get_watchlist()
+    initial_symbol    = initial_watchlist[0] if initial_watchlist else "AAPL"
+
+    return html.Div(
+        id="sidebar",
+        children=[
+            html.Div("📈 eSignal", className="brand"),
+            html.Div(id="market-status-badge", className="market-status"),
+            html.Hr(style={"borderColor": "#2a2f3e", "margin": "0 0 0.5rem 0"}),
+            *_nav_items(),
+            html.Hr(style={"borderColor": "#2a2f3e", "margin": "1rem 0 0.5rem 0"}),
+            html.P("WATCHLIST", className="nav-section-label"),
+            dbc.InputGroup(
+                [
+                    dbc.Input(
+                        id="watchlist-add-input",
+                        placeholder="e.g. AAPL",
+                        size="sm",
+                        style={
+                            "backgroundColor": "#0f1117",
+                            "color": "#e0e0e0",
+                            "borderColor": "#2a2f3e",
+                        },
+                    ),
+                    dbc.Button(
+                        "＋", id="watchlist-add-btn",
+                        color="primary", size="sm", n_clicks=0,
+                    ),
+                ],
+                size="sm",
+                style={"padding": "0 0.5rem 0.5rem 0.5rem"},
+            ),
+            html.Div(id="watchlist-items"),
+            # Stores & intervals
+            dcc.Interval(id="market-status-interval", interval=30_000, n_intervals=0),
+            dcc.Interval(
+                id="page-refresh-interval",
+                interval=settings.REFRESH_INTERVAL * 1000,
+                n_intervals=0,
+            ),
+            dcc.Store(id="current-page",    data="market-overview", storage_type="session"),
+            dcc.Store(id="selected-symbol", data=initial_symbol,    storage_type="session"),
+            dcc.Store(id="watchlist-store", data=initial_watchlist, storage_type="session"),
+        ],
+    )
+
+
+# ── Root layout ───────────────────────────────────────────────────────────────
+app.layout = html.Div(
+    [
+        _sidebar(),
+        html.Div(
+            id="page-content",
+            children=[
+                html.Div(
+                    id="topbar",
+                    children=[
+                        html.H2(id="page-title", children="📊 Market Overview"),
+                        html.Div(id="gemini-status-badge"),
+                    ],
+                ),
+                html.Div(id="page-body"),
+                html.Div(
+                    id="footer",
+                    children=[
+                        "⚠️ For educational purposes only. Not financial advice. ",
+                        "Data: Yahoo Finance • AI: Google Gemini",
+                    ],
+                ),
+            ],
+        ),
+    ]
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    /* Responsive layout */
-    @media (max-width: 640px) {
-        .block-container {
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
+
+# ── Router ────────────────────────────────────────────────────────────────────
+@app.callback(
+    Output("current-page", "data"),
+    Input({"type": "nav-btn", "page": dash.ALL}, "n_clicks"),
+    State("current-page", "data"),
+    prevent_initial_call=True,
+)
+def _navigate(_n_clicks_list, current_page):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return current_page
+    prop_id = ctx.triggered[0]["prop_id"]
+    btn_id  = json.loads(prop_id.rsplit(".", 1)[0])
+    return btn_id["page"]
+
+
+@app.callback(
+    Output("page-title", "children"),
+    Output("page-body",  "children"),
+    Input("current-page",    "data"),
+    State("watchlist-store", "data"),
+    State("selected-symbol", "data"),
+)
+def _render_page(page_id, watchlist, selected_symbol):
+    watchlist       = watchlist or []
+    selected_symbol = selected_symbol or (watchlist[0] if watchlist else "AAPL")
+    icon  = ICON_MAP.get(page_id, "")
+    title = PAGE_TITLES.get(page_id, page_id)
+
+    page_map = {
+        "market-overview": lambda: market_overview_layout(SERVICES, watchlist),
+        "trading-signals": lambda: trading_signals_layout(SERVICES, watchlist),
+        "day-trading":     lambda: day_trading_layout(SERVICES),
+        "swing-trading":   lambda: swing_trading_layout(SERVICES),
+        "portfolio":       lambda: portfolio_layout(SERVICES),
+        "ai-news":         lambda: news_layout(SERVICES, watchlist),
+        "backtest":        lambda: backtest_layout(SERVICES, watchlist),
+        "beginners-guide": lambda: guide_layout(),
+        "news-controller": lambda: nc_layout(SERVICES),
+        "detailed-charts": lambda: charts_layout(SERVICES, watchlist),
     }
 
-    /* Reduce default top padding */
-    .block-container {
-        padding-top: 1.5rem;
-    }
-
-    /* Typography */
-    .big-font {
-        font-size: 24px !important;
-        font-weight: bold;
-    }
-
-    /* Cards */
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        margin: 10px 0;
-    }
-
-    /* Colors */
-    .positive { color: #00c853; }
-    .negative { color: #d32f2f; }
-
-    .stAlert { margin-top: 10px; }
-
-    /* Active nav button */
-    .nav-active > button {
-        background-color: #0e4d92 !important;
-        color: white !important;
-        font-weight: bold !important;
-        border-left: 4px solid #4fc3f7 !important;
-    }
-
-    /* Nav button hover */
-    .stButton > button:hover {
-        border-color: #4fc3f7;
-    }
-
-    /* Sidebar section labels */
-    .sidebar-section {
-        font-size: 0.72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #888;
-        margin: 0.8rem 0 0.3rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Initialize services
-@st.cache_resource
-def get_services():
-    """Initialize and cache services."""
-    market  = MarketDataService()
-    gemini  = GeminiService()
-    return {
-        "market":    market,
-        "gemini":    gemini,
-        "strategy":  TradingStrategyService(market_service=market, gemini_service=gemini),
-        "portfolio": PortfolioDB(),
-        "backtest":  BacktestService(),
-    }
-
-services = get_services()
-
-# ── Watchlist: DB is the single source of truth ──────────────────────────────
-# Seed the watchlist table with .env defaults only on first-ever install.
-services['portfolio'].seed_watchlist_defaults(settings.DEFAULT_TICKERS)
-
-# Load the persisted watchlist into session_state once per browser session.
-# On subsequent reruns within the same session the value is already set.
-if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = services['portfolio'].get_watchlist()
-# ─────────────────────────────────────────────────────────────────────────────
-
-if 'selected_symbol' not in st.session_state:
-    st.session_state.selected_symbol = st.session_state.watchlist[0] if st.session_state.watchlist else "AAPL"
-
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = "Market Overview"
-
-if 'auto_refresh' not in st.session_state:
-    st.session_state.auto_refresh = True
-
-# Auto-refresh
-if st.session_state.get('auto_refresh', True):
-    st_autorefresh(interval=settings.REFRESH_INTERVAL * 1000, key="datarefresh")
-
-# Sidebar navigation and controls
-with st.sidebar:
-    st.title("📈 eSignal")
-
-    # Market status
-    market_status = services['market'].get_market_status()
-    status_emoji = "🟢" if market_status.get('is_open') else "🔴"
-    st.caption(f"{status_emoji} Market: **{market_status.get('market_state', 'UNKNOWN')}**")
-
-    st.divider()
-
-    # ── Grouped Navigation ────────────────────────────────────────────────────
-    current = st.session_state.current_page
-
-    nav_groups = {
-        "MARKET": {
-            "Market Overview": "📊 Market Overview",
-            "Detailed Charts": "� Charts",
-        },
-        "TRADING": {
-            "Trading Signals": "🎯 Signals",
-            "Day Trading":     "⚡ Day Trading",
-            "Swing Trading":   "🌊 Swing Trading",
-        },
-        "RESEARCH": {
-            "AI News & Analysis": "🤖 AI News",
-            "News Controller":    "🎛️ News Settings",
-        },
-        "ACCOUNT": {
-            "My Portfolio": "💼 Portfolio",
-            "Backtest":     "🧪 Backtest",
-        },
-        "HELP": {
-            "Beginner's Guide": "📚 Beginner's Guide",
-        },
-    }
-
-    for group_label, pages in nav_groups.items():
-        st.markdown(f"<p class='sidebar-section'>{group_label}</p>", unsafe_allow_html=True)
-        for key, label in pages.items():
-            is_active = current == key
-            container = st.container()
-            if is_active:
-                container.markdown("<span class='nav-active'>", unsafe_allow_html=True)
-            if container.button(
-                f"{'▶ ' if is_active else ''}{label}",
-                key=f"nav_{key}",
-                use_container_width=True,
-            ):
-                st.session_state.current_page = key
-                st.rerun()
-            if is_active:
-                container.markdown("</span>", unsafe_allow_html=True)
-
-    st.divider()
-
-    # ── Watchlist ─────────────────────────────────────────────────────────────
-    st.markdown("<p class='sidebar-section'>WATCHLIST</p>", unsafe_allow_html=True)
-
-    # Add new ticker
-    col_input, col_btn = st.columns([3, 1])
-    with col_input:
-        new_ticker = st.text_input(
-            "Ticker",
-            placeholder="e.g. AAPL",
-            label_visibility="collapsed",
-            key="sidebar_add_ticker_input",
-        ).upper()
-    with col_btn:
-        st.write("")  # vertical alignment nudge
-        add_clicked = st.button("＋", key="sidebar_add_ticker_btn", use_container_width=True)
-
-    if add_clicked:
-        if new_ticker:
-            added = services['portfolio'].add_to_watchlist(new_ticker)
-            if added:
-                st.session_state.watchlist = services['portfolio'].get_watchlist()
-                st.rerun()
-            else:
-                st.warning(f"{new_ticker} already in watchlist")
-        else:
-            st.warning("Enter a ticker symbol")
-
-    # Watchlist items
-    for ticker in st.session_state.watchlist:
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            is_selected = ticker == st.session_state.selected_symbol
-            label = f"**{ticker}**" if is_selected else ticker
-            if st.button(label, key=f"select_{ticker}", use_container_width=True):
-                st.session_state.selected_symbol = ticker
-        with col2:
-            if st.button("✕", key=f"remove_{ticker}"):
-                services['portfolio'].remove_from_watchlist(ticker)
-                st.session_state.watchlist = services['portfolio'].get_watchlist()
-                st.rerun()
-
-    st.divider()
-
-    # ── Settings ──────────────────────────────────────────────────────────────
-    st.markdown("<p class='sidebar-section'>SETTINGS</p>", unsafe_allow_html=True)
-    auto_refresh = st.checkbox(
-        "Auto-refresh",
-        value=st.session_state.auto_refresh,
-        key="sidebar_auto_refresh_checkbox",
+    body_fn = page_map.get(page_id)
+    body = body_fn() if body_fn else html.P(
+        f"Page '{page_id}' not found.", style={"color": "#888"}
     )
-    st.session_state.auto_refresh = auto_refresh
 
-    col_r1, col_r2 = st.columns(2)
-    with col_r1:
-        if st.button("🔄 Refresh", key="sidebar_refresh_btn", use_container_width=True):
-            st.rerun()
-    with col_r2:
-        st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
+    return f"{icon}  {title}", body
 
-# ── Top status bar (replaces the heavy title block) ──────────────────────────
-page = st.session_state.current_page
-_page_title = {
-    "Market Overview":    "📊 Market Overview",
-    "My Portfolio":       "� My Portfolio",
-    "Backtest":           "🧪 Backtest",
-    "AI News & Analysis": "🤖 AI News & Analysis",
-    "Trading Signals":    "🎯 Trading Signals",
-    "Detailed Charts":    "📈 Detailed Charts",
-    "Day Trading":        "⚡ Day Trading",
-    "Swing Trading":      "🌊 Swing Trading",
-    "News Controller":    "🎛️ News Controller",
-    "Beginner's Guide":   "📚 Beginner's Guide",
-}.get(page, page)
 
-col_title, col_warn = st.columns([3, 2])
-with col_title:
-    st.markdown(f"## {_page_title}")
-with col_warn:
-    if not services['gemini'].is_available():
-        st.warning("⚠️ Gemini AI not configured — set GEMINI_API_KEY in .env")
+# ── Market status ─────────────────────────────────────────────────────────────
+@app.callback(
+    Output("market-status-badge", "children"),
+    Input("market-status-interval", "n_intervals"),
+)
+def _update_market_status(_):
+    status = SERVICES["market"].get_market_status()
+    dot    = "🟢" if status.get("is_open") else "🔴"
+    state  = status.get("market_state", "UNKNOWN")
+    return f"{dot} {state}"
 
-st.divider()
 
-if page == "Market Overview":
-    render_market_overview(services, st.session_state.watchlist)
+# ── Gemini status ─────────────────────────────────────────────────────────────
+@app.callback(
+    Output("gemini-status-badge", "children"),
+    Input("current-page", "data"),
+)
+def _gemini_badge(_):
+    if not SERVICES["gemini"].is_available():
+        return dbc.Alert(
+            "⚠️ Gemini AI not configured — set GEMINI_API_KEY in .env",
+            color="warning",
+            style={"padding": "0.3rem 0.75rem", "fontSize": "0.8rem", "margin": 0},
+        )
+    return ""
 
-elif page == "My Portfolio":
-    render_portfolio_management(services)
 
-elif page == "Backtest":
-    render_backtest_page(services, st.session_state.watchlist)
+# ── Watchlist: add ────────────────────────────────────────────────────────────
+@app.callback(
+    Output("watchlist-store",    "data"),
+    Output("watchlist-add-input", "value"),
+    Input("watchlist-add-btn", "n_clicks"),
+    State("watchlist-add-input", "value"),
+    prevent_initial_call=True,
+)
+def _add_to_watchlist(_, ticker):
+    if not ticker:
+        return SERVICES["portfolio"].get_watchlist(), ""
+    SERVICES["portfolio"].add_to_watchlist(ticker.strip().upper())
+    return SERVICES["portfolio"].get_watchlist(), ""
 
-elif page == "AI News & Analysis":
-    render_news_analysis(services, st.session_state.selected_symbol, st.session_state.watchlist)
 
-elif page == "Trading Signals":
-    render_trading_signals(services, st.session_state.watchlist)
+# ── Watchlist: render + select + remove ──────────────────────────────────────
+@app.callback(
+    Output("watchlist-items",   "children"),
+    Output("selected-symbol",   "data"),
+    Input("watchlist-store",    "data"),
+    Input({"type": "wl-select", "ticker": dash.ALL}, "n_clicks"),
+    Input({"type": "wl-remove", "ticker": dash.ALL}, "n_clicks"),
+    State("selected-symbol",    "data"),
+)
+def _render_watchlist(watchlist, _sel, _rem, selected):
+    ctx      = dash.callback_context
+    watchlist = watchlist or []
 
-elif page == "Detailed Charts":
-    render_detailed_charts(services, st.session_state.watchlist)
+    if ctx.triggered:
+        prop_id = ctx.triggered[0]["prop_id"]
+        if "wl-remove" in prop_id:
+            ticker = json.loads(prop_id.rsplit(".", 1)[0])["ticker"]
+            SERVICES["portfolio"].remove_from_watchlist(ticker)
+            watchlist = SERVICES["portfolio"].get_watchlist()
+            if selected == ticker:
+                selected = watchlist[0] if watchlist else "AAPL"
+        elif "wl-select" in prop_id:
+            selected = json.loads(prop_id.rsplit(".", 1)[0])["ticker"]
 
-elif page == "Day Trading":
-    render_day_trading_page(services)
+    items = []
+    for t in watchlist:
+        cls = "watchlist-item selected" if t == selected else "watchlist-item"
+        items.append(
+            html.Div(
+                className=cls,
+                children=[
+                    html.Button(
+                        t,
+                        id={"type": "wl-select", "ticker": t},
+                        n_clicks=0,
+                        style={
+                            "background": "none", "border": "none",
+                            "color": "inherit",   "cursor": "pointer",
+                            "fontSize": "0.82rem", "padding": 0,
+                        },
+                    ),
+                    html.Button(
+                        "✕",
+                        id={"type": "wl-remove", "ticker": t},
+                        className="watchlist-remove",
+                        n_clicks=0,
+                    ),
+                ],
+            )
+        )
+    return items, selected
 
-elif page == "Swing Trading":
-    render_swing_trading_page(services)
 
-elif page == "News Controller":
-    render_news_controller_page(services)
+# ── Register page-level callbacks ─────────────────────────────────────────────
+market_overview_callbacks(app, SERVICES)
+trading_signals_callbacks(app, SERVICES)
+day_trading_callbacks(app, SERVICES)
+swing_trading_callbacks(app, SERVICES)
+portfolio_callbacks(app, SERVICES)
+news_callbacks(app, SERVICES)
+backtest_callbacks(app, SERVICES)
+charts_callbacks(app, SERVICES)
+nc_callbacks(app, SERVICES)
+guide_callbacks(app, SERVICES)
 
-elif page == "Beginner's Guide":
-    render_beginner_guide_page()
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666;'>
-    <p><strong>⚠️ Disclaimer:</strong> This dashboard is for educational purposes only. Not financial advice.
-    Always do your own research before making investment decisions.</p>
-    <p>Data provided by Yahoo Finance • AI powered by Google Gemini</p>
-</div>
-""", unsafe_allow_html=True)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=8050)

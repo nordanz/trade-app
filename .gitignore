@@ -53,6 +53,7 @@ env*/
 
 # coverage
 .coverage
+htmlcov/
 
 # pyenv local files
 .python-version
