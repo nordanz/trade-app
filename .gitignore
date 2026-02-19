@@ -50,3 +50,9 @@ Thumbs.db
 .env
 venv*/
 env*/
+
+# coverage
+.coverage
+
+# pyenv local files
+.python-version

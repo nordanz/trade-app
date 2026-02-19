@@ -6,9 +6,19 @@ echo "📈 Stock Market Dashboard Setup"
 echo "================================"
 echo ""
 
-# Check Python version
+# Check Python version (require >= 3.12)
 echo "Checking Python version..."
-python3 --version
+python3 - <<'PY'
+import sys
+if sys.version_info < (3, 12):
+    sys.stderr.write(f"Error: Python {sys.version_info.major}.{sys.version_info.minor} detected. Python 3.12 or newer is required.\n")
+    sys.exit(2)
+print("Python " + sys.version.split()[0] + " detected.")
+PY
+if [ $? -ne 0 ]; then
+    echo "Please install Python 3.12+ and ensure 'python3' points to it."
+    exit 1
+fi
 
 # Create virtual environment
 echo ""
@@ -27,8 +37,8 @@ pip install --upgrade pip
 
 # Install dependencies
 echo ""
-echo "Installing dependencies..."
-pip install -r requirements.txt
+echo "Installing all dependencies..."
+pip install -e '.[dev,news]'
 
 # Copy environment file
 echo ""

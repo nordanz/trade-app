@@ -1,0 +1,145 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esignal"
+version = "1.0.0"
+description = "AI-powered stock market dashboard with trading signals and portfolio management"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Trading Dashboard Team", email = "info@example.com"}
+]
+keywords = ["trading", "stocks", "signals", "portfolio", "ai", "gemini"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+dependencies = [
+    # Core Framework
+    "streamlit>=1.54.0",
+    
+    # Data Processing
+    "pandas>=2.3.3",
+    "numpy>=2.2.6",
+    "pandas-ta==0.4.71b0",
+    
+    # Market Data
+    "yfinance>=1.1.0",
+    
+    # AI Integration
+    "google-genai>=1.61.0",
+    
+    # Visualization
+    "plotly==6.5.2",
+    
+    # Backtesting
+    "backtesting==0.6.5",
+    
+    # Utilities
+    "python-dotenv==1.2.1",
+    "requests==2.32.5",
+    "streamlit-autorefresh>=1.0.1",
+    
+    # Data Validation
+    "pydantic>=2.12.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+
+news = [
+    "newsapi-python>=0.2.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/esignal"
+Documentation = "https://github.com/yourusername/esignal/wiki"
+Repository = "https://github.com/yourusername/esignal.git"
+"Bug Tracker" = "https://github.com/yourusername/esignal/issues"
+
+[project.scripts]
+esignal = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]
+packages = ["dashboard", "services", "models", "utils", "config", "tests"]
+
+[tool.setuptools.package-data]
+dashboard = ["components/*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=. --cov-report=html --cov-report=term-missing"
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | venv312
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+known_first_party = ["dashboard", "services", "models", "utils", "config"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "*/tests/*",
+    "*/venv*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
