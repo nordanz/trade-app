@@ -314,18 +314,19 @@ class TestStrategySpecificSignals:
     
     def test_vwap_strategy_signal(self, service):
         """Test VWAP strategy signal generation"""
-        stock_data = Mock(current_price=100.5, change_percent=0.5)
+        # Price 0.2% above VWAP (within the 0.3% band) with sufficient volume
+        stock_data = Mock(current_price=100.2, change_percent=0.2)
         indicators = {
             'rsi': 55.0,
             'macd': {'macd': 0.5, 'signal': 0.3, 'histogram': 0.2},
-            'vwap': 100.0,  # Price above VWAP
+            'vwap': 100.0,  # Price 0.2% above VWAP → within band
             'atr': 1.5,
             'pivots': {'r1': 102.0, 's1': 98.0},
             'bollinger': {'upper': 105.0, 'middle': 100.0, 'lower': 95.0},
             'support': 98.0,
             'resistance': 102.0,
             'trend': 'UPTREND',
-            'volume': {},
+            'volume': {'current_volume': 300_000, 'avg_volume': 150_000, 'volume_ratio': 2.0},
             'golden_cross': False,
             'death_cross': False,
             'fibonacci': {}
@@ -335,7 +336,7 @@ class TestStrategySpecificSignals:
             stock_data, indicators, None, 'day', 'vwap'
         )
         
-        # Price above VWAP should trigger buy
+        # Price within 0.3% of VWAP with volume should trigger VWAP signal
         assert signal_type in [SignalType.BUY, SignalType.HOLD]
         assert 'vwap' in reasoning.lower()
     

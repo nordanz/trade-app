@@ -92,19 +92,27 @@ st.markdown("""
 @st.cache_resource
 def get_services():
     """Initialize and cache services."""
+    market  = MarketDataService()
+    gemini  = GeminiService()
     return {
-        "market": MarketDataService(),
-        "gemini": GeminiService(),
-        "strategy": TradingStrategyService(),
+        "market":    market,
+        "gemini":    gemini,
+        "strategy":  TradingStrategyService(market_service=market, gemini_service=gemini),
         "portfolio": PortfolioDB(),
-        "backtest": BacktestService(),
+        "backtest":  BacktestService(),
     }
 
 services = get_services()
 
-# Initialize session state
+# ── Watchlist: DB is the single source of truth ──────────────────────────────
+# Seed the watchlist table with .env defaults only on first-ever install.
+services['portfolio'].seed_watchlist_defaults(settings.DEFAULT_TICKERS)
+
+# Load the persisted watchlist into session_state once per browser session.
+# On subsequent reruns within the same session the value is already set.
 if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = settings.DEFAULT_TICKERS.copy()
+    st.session_state.watchlist = services['portfolio'].get_watchlist()
+# ─────────────────────────────────────────────────────────────────────────────
 
 if 'selected_symbol' not in st.session_state:
     st.session_state.selected_symbol = st.session_state.watchlist[0] if st.session_state.watchlist else "AAPL"
@@ -163,12 +171,16 @@ with st.sidebar:
         key="sidebar_add_ticker_input"
     ).upper()
     if st.button("➕ Add", key="sidebar_add_ticker_btn", use_container_width=True):
-        if new_ticker and new_ticker not in st.session_state.watchlist:
-            st.session_state.watchlist.append(new_ticker)
-            st.success(f"Added {new_ticker}")
-            st.rerun()
-        elif new_ticker in st.session_state.watchlist:
-            st.warning(f"{new_ticker} already in watchlist")
+        if new_ticker:
+            added = services['portfolio'].add_to_watchlist(new_ticker)
+            if added:
+                st.session_state.watchlist = services['portfolio'].get_watchlist()
+                st.success(f"Added {new_ticker}")
+                st.rerun()
+            else:
+                st.warning(f"{new_ticker} is already in your watchlist")
+        else:
+            st.warning("Please enter a ticker symbol")
     
     # Display watchlist
     st.markdown("**Current Watchlist:**")
@@ -179,7 +191,8 @@ with st.sidebar:
                 st.session_state.selected_symbol = ticker
         with col2:
             if st.button("❌", key=f"remove_{ticker}"):
-                st.session_state.watchlist.remove(ticker)
+                services['portfolio'].remove_from_watchlist(ticker)
+                st.session_state.watchlist = services['portfolio'].get_watchlist()
                 st.rerun()
     
     st.markdown("---")
@@ -225,7 +238,7 @@ elif page == "AI News & Analysis":
     render_news_analysis(services, st.session_state.selected_symbol, st.session_state.watchlist)
 
 elif page == "Trading Signals":
-    render_trading_signals(services, st.session_state.selected_symbol, st.session_state.watchlist)
+    render_trading_signals(services, st.session_state.watchlist)
 
 elif page == "Detailed Charts":
     render_detailed_charts(services, st.session_state.watchlist)

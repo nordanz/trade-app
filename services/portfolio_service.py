@@ -404,6 +404,45 @@ class PortfolioDB:
             'worst_trade': worst_trade
         }
     
+    def get_watchlist(self) -> List[str]:
+        """Return all watchlist symbols ordered by when they were added."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT symbol FROM watchlist ORDER BY added_date ASC, id ASC")
+        return [row[0] for row in cursor.fetchall()]
+
+    def add_to_watchlist(self, symbol: str, notes: str = "") -> bool:
+        """Add a symbol to the watchlist. Returns False if already present."""
+        symbol = symbol.upper().strip()
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO watchlist (symbol, added_date, notes) VALUES (?, ?, ?)",
+                (symbol, datetime.now().strftime("%Y-%m-%d"), notes),
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            # UNIQUE constraint – symbol already in watchlist
+            return False
+
+    def remove_from_watchlist(self, symbol: str) -> bool:
+        """Remove a symbol from the watchlist. Returns False if not found."""
+        symbol = symbol.upper().strip()
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def seed_watchlist_defaults(self, default_symbols: List[str]) -> None:
+        """
+        Populate the watchlist with *default_symbols* only when the table is
+        empty (first install).  Subsequent calls are no-ops.
+        """
+        if self.get_watchlist():
+            return  # Already seeded – respect the user's saved list
+        for sym in default_symbols:
+            self.add_to_watchlist(sym)
+
     def close(self):
         """Close database connection."""
         if self.conn:

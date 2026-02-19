@@ -13,6 +13,7 @@ from services.market_data_service import MarketDataService
 from services.trading_strategy_service import TradingStrategyService
 from services.strategies import DAY_TRADING_STRATEGIES
 from models.trading_signal import SignalType
+from dashboard.components.backtest_widget import render_backtest_panel
 
 
 def render_day_trading_page(services=None):
@@ -23,6 +24,11 @@ def render_day_trading_page(services=None):
     Day trading strategies for intraday positions (minutes to hours).
     All positions are closed by end of day (EOD).
     """)
+    st.warning(
+        "⚠️ **Data is delayed ~15 minutes** (standard Yahoo Finance feed). "
+        "Intraday signals are for **research and screening only** — "
+        "do not use them as live execution signals without a real-time data source."
+    )
     
     # Use shared services or create new ones as fallback
     if services:
@@ -123,6 +129,14 @@ def render_day_trading_page(services=None):
             if signal:
                 _display_signal(signal, selected_strategy)
                 _display_intraday_chart(symbol, timeframe, market_service, signal)
+                # ── Inline backtest panel ─────────────────────────────────
+                st.divider()
+                render_backtest_panel(
+                    services,
+                    symbol=symbol,
+                    strategy_name=selected_strategy,
+                    key_prefix="day_",
+                )
             else:
                 st.error(f"❌ Could not generate signal for {symbol}. Please check the symbol and try again.")
     
@@ -165,10 +179,10 @@ def _display_signal(signal, strategy_name: str):
     """Display the trading signal in a nice format."""
     
     # Signal header with color coding
-    if signal.signal_type == SignalType.BUY:
+    if signal.signal == SignalType.BUY:
         st.success("### 🟢 BUY SIGNAL")
         signal_color = "#00ff00"
-    elif signal.signal_type == SignalType.SELL:
+    elif signal.signal == SignalType.SELL:
         st.error("### 🔴 SELL SIGNAL")
         signal_color = "#ff0000"
     else:
@@ -188,12 +202,12 @@ def _display_signal(signal, strategy_name: str):
         st.metric("Stop Loss", f"${signal.stop_loss:.2f}")
     
     with col4:
-        st.metric("Take Profit", f"${signal.take_profit:.2f}")
+        st.metric("Take Profit", f"${signal.target_price:.2f}")
     
     # Risk/Reward calculation
-    if signal.signal_type in [SignalType.BUY, SignalType.SELL]:
+    if signal.signal in [SignalType.BUY, SignalType.SELL]:
         risk = abs(signal.entry_price - signal.stop_loss)
-        reward = abs(signal.take_profit - signal.entry_price)
+        reward = abs(signal.target_price - signal.entry_price)
         risk_reward = reward / risk if risk > 0 else 0
         
         col1, col2, col3 = st.columns(3)
@@ -267,9 +281,9 @@ def _display_intraday_chart(symbol: str, timeframe: str, market_service, signal)
         ))
     
     # Add signal markers
-    if signal.signal_type in [SignalType.BUY, SignalType.SELL]:
-        marker_color = 'green' if signal.signal_type == SignalType.BUY else 'red'
-        marker_symbol = 'triangle-up' if signal.signal_type == SignalType.BUY else 'triangle-down'
+    if signal.signal in [SignalType.BUY, SignalType.SELL]:
+        marker_color = 'green' if signal.signal == SignalType.BUY else 'red'
+        marker_symbol = 'triangle-up' if signal.signal == SignalType.BUY else 'triangle-down'
         
         fig.add_trace(go.Scatter(
             x=[data.index[-1]],
@@ -282,7 +296,7 @@ def _display_intraday_chart(symbol: str, timeframe: str, market_service, signal)
         # Add stop loss and take profit lines
         fig.add_hline(y=signal.stop_loss, line_dash="dash", line_color="red",
                      annotation_text="Stop Loss")
-        fig.add_hline(y=signal.take_profit, line_dash="dash", line_color="green",
+        fig.add_hline(y=signal.target_price, line_dash="dash", line_color="green",
                      annotation_text="Take Profit")
     
     fig.update_layout(
@@ -304,11 +318,11 @@ def _display_watchlist_results(signals: List):
     for signal in signals:
         data.append({
             'Symbol': signal.symbol,
-            'Signal': signal.signal_type.value,
+            'Signal': signal.signal.value,
             'Confidence': f"{signal.confidence:.1f}%",
             'Entry': f"${signal.entry_price:.2f}",
             'Stop': f"${signal.stop_loss:.2f}",
-            'Target': f"${signal.take_profit:.2f}",
+            'Target': f"${signal.target_price:.2f}",
             'Reasoning': signal.reasoning[:50] + "..." if len(signal.reasoning) > 50 else signal.reasoning
         })
     

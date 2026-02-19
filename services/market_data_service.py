@@ -82,21 +82,35 @@ class MarketDataService:
             logger.error("Error fetching data for %s: %s", symbol, e)
             return None
     
-    def get_historical_data(self, symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+    def get_historical_data(
+        self,
+        symbol: str,
+        period: str = "3mo",
+        interval: str = "1d",
+        start: str = None,
+        end: str = None,
+    ) -> pd.DataFrame:
         """
         Get historical price data.
-        
+
         Args:
             symbol: Stock ticker symbol
-            period: Data period (e.g., "1mo", "3mo", "1y")
-            interval: Data interval (e.g., "1d", "1h")
-        
+            period: Data period (e.g., "1mo", "3mo", "1y"). Ignored when
+                    *start* is provided.
+            interval: Data interval (e.g., "1d", "5m", "1h")
+            start: Optional start date string "YYYY-MM-DD". When supplied,
+                   *period* is ignored and yfinance fetches by date range.
+            end: Optional end date string "YYYY-MM-DD" (inclusive).
+
         Returns:
             DataFrame with historical data
         """
         try:
             ticker = yf.Ticker(symbol)
-            hist = ticker.history(period=period, interval=interval)
+            if start is not None:
+                hist = ticker.history(start=start, end=end, interval=interval)
+            else:
+                hist = ticker.history(period=period, interval=interval)
             return hist
         except Exception as e:
             logger.error("Error fetching historical data for %s: %s", symbol, e)

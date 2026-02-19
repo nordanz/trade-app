@@ -10,6 +10,12 @@ import numpy as np
 import pandas_ta as ta
 from typing import Optional
 
+from services.signal_logic import (
+    VWAPParams,     vwap_signal,
+    ORBParams,      orb_signal,
+    MomentumParams, momentum_signal,
+)
+
 
 class BaseDayTradingStrategy(Strategy):
     """Base class for all day trading strategies with common intraday logic"""
@@ -91,45 +97,36 @@ class VWAPTradingStrategy(BaseDayTradingStrategy):
         return pd.Series(vwap).bfill().values
     
     def next(self):
-        """Trading logic executed on each bar"""
-        
-        # Check daily loss limit
-        if self.check_daily_loss_limit():
+        """Trading logic executed on each bar."""
+
+        if self.check_daily_loss_limit() or self.should_close_eod():
             if self.position:
                 self.position.close()
             return
-        
-        # Close positions at EOD
-        if self.should_close_eod():
-            if self.position:
-                self.position.close()
-            return
-        
-        price = self.data.Close[-1]
-        vwap = self.vwap[-1]
-        volume = self.data.Volume[-1]
-        avg_vol = self.avg_volume[-1]
-        atr = self.atr[-1]
-        
-        # Volume confirmation
-        volume_confirmed = volume > self.volume_threshold * avg_vol
-        
+
+        result = vwap_signal(
+            price=self.data.Close[-1],
+            vwap=self.vwap[-1],
+            volume=self.data.Volume[-1],
+            avg_volume=self.avg_volume[-1],
+            atr=self.atr[-1],
+            params=VWAPParams(
+                volume_threshold=self.volume_threshold,
+                vwap_distance=self.vwap_distance,
+                sl_multiplier=self.sl_multiplier,
+                tp_multiplier=self.tp_multiplier,
+            ),
+        )
+
         if not self.position:
-            # Entry logic
-            if volume_confirmed:
-                # LONG: Price crosses above VWAP
-                if price > vwap and (price - vwap) / vwap < self.vwap_distance:
-                    sl_price = price - self.sl_multiplier * atr
-                    tp_price = price + self.tp_multiplier * atr
-                    self.buy(sl=sl_price, tp=tp_price)
-                
-                # SHORT: Price crosses below VWAP
-                elif price < vwap and (vwap - price) / vwap < self.vwap_distance:
-                    sl_price = price + self.sl_multiplier * atr
-                    tp_price = price - self.tp_multiplier * atr
-                    self.sell(sl=sl_price, tp=tp_price)
+            if result.direction == 'BUY':
+                self.buy(sl=result.sl_price, tp=result.tp_price)
+            elif result.direction == 'SELL':
+                self.sell(sl=result.sl_price, tp=result.tp_price)
         else:
-            # Mean reversion exit - close when price returns to VWAP
+            # Mean-reversion exit: close when price returns to VWAP
+            price = self.data.Close[-1]
+            vwap  = self.vwap[-1]
             if self.position.is_long and price >= vwap:
                 self.position.close()
             elif self.position.is_short and price <= vwap:
@@ -169,51 +166,48 @@ class OpeningRangeBreakoutStrategy(BaseDayTradingStrategy):
         self.avg_volume = self.I(lambda v: ta.sma(pd.Series(v), 20).bfill().values, self.data.Volume)
     
     def next(self):
-        """Trading logic executed on each bar"""
-        
-        # Check daily loss limit
-        if self.check_daily_loss_limit():
+        """Trading logic executed on each bar."""
+
+        if self.check_daily_loss_limit() or self.should_close_eod():
             if self.position:
                 self.position.close()
             return
-        
-        # Close positions at EOD
-        if self.should_close_eod():
-            if self.position:
-                self.position.close()
-            return
-        
+
         self.bar_count += 1
-        price = self.data.Close[-1]
-        volume = self.data.Volume[-1]
-        avg_vol = self.avg_volume[-1]
-        
+        price     = self.data.Close[-1]
+        volume    = self.data.Volume[-1]
+        avg_vol   = self.avg_volume[-1]
+
         # Establish opening range (first N bars)
         if self.bar_count <= self.opening_range_bars:
             if self.opening_high is None:
                 self.opening_high = self.data.High[-1]
-                self.opening_low = self.data.Low[-1]
+                self.opening_low  = self.data.Low[-1]
             else:
                 self.opening_high = max(self.opening_high, self.data.High[-1])
-                self.opening_low = min(self.opening_low, self.data.Low[-1])
+                self.opening_low  = min(self.opening_low,  self.data.Low[-1])
                 self.opening_range = self.opening_high - self.opening_low
             return
-        
-        # Volume confirmation for breakout
-        volume_confirmed = volume > self.volume_threshold * avg_vol
-        
-        if not self.position and volume_confirmed and self.opening_range:
-            # LONG: Breakout above opening high
-            if price > self.opening_high:
-                sl_price = self.opening_low
-                tp_price = self.opening_high + self.profit_multiplier * self.opening_range
-                self.buy(sl=sl_price, tp=tp_price)
-            
-            # SHORT: Breakdown below opening low
-            elif price < self.opening_low:
-                sl_price = self.opening_high
-                tp_price = self.opening_low - self.profit_multiplier * self.opening_range
-                self.sell(sl=sl_price, tp=tp_price)
+
+        if self.position:
+            return  # ORB: hold until SL/TP is hit, no active management
+
+        result = orb_signal(
+            price=price,
+            opening_high=self.opening_high,
+            opening_low=self.opening_low,
+            volume=volume,
+            avg_volume=avg_vol,
+            params=ORBParams(
+                volume_threshold=self.volume_threshold,
+                profit_multiplier=self.profit_multiplier,
+            ),
+        )
+
+        if result.direction == 'BUY':
+            self.buy(sl=result.sl_price, tp=result.tp_price)
+        elif result.direction == 'SELL':
+            self.sell(sl=result.sl_price, tp=result.tp_price)
 
 
 class MomentumGapStrategy(BaseDayTradingStrategy):
@@ -250,56 +244,65 @@ class MomentumGapStrategy(BaseDayTradingStrategy):
         macd_df = ta.macd(pd.Series(self.data.Close), fast=12, slow=26, signal=9)
         self.macd = self.I(lambda: macd_df['MACD_12_26_9'].bfill().values)
         self.macd_signal = self.I(lambda: macd_df['MACDs_12_26_9'].bfill().values)
-        
+
+        # 20-bar average volume (used to normalise current volume in momentum_signal)
+        self.avg_volume = self.I(
+            lambda v: pd.Series(v).rolling(20, min_periods=1).mean().values,
+            self.data.Volume,
+        )
+
         # Track previous close for gap detection
         self.prev_close = None
     
     def next(self):
-        """Trading logic executed on each bar"""
-        
-        # Check daily loss limit
-        if self.check_daily_loss_limit():
+        """Trading logic executed on each bar."""
+
+        if self.check_daily_loss_limit() or self.should_close_eod():
             if self.position:
                 self.position.close()
             return
-        
-        # Close positions at EOD
-        if self.should_close_eod():
-            if self.position:
-                self.position.close()
-            return
-        
-        price = self.data.Close[-1]
-        rsi = self.rsi[-1]
-        macd = self.macd[-1]
-        macd_sig = self.macd_signal[-1]
-        atr = self.atr[-1]
-        
-        # Detect gap on first bar of the day
+
+        price     = self.data.Close[-1]
+        rsi       = self.rsi[-1]
+        macd      = self.macd[-1]
+        macd_sig  = self.macd_signal[-1]
+        atr       = self.atr[-1]
+        volume    = self.data.Volume[-1]
+        avg_vol   = self.avg_volume[-1]
+
         if self.prev_close is None or len(self.data) == 1:
             self.prev_close = price
             return
-        
-        gap_size = (price - self.prev_close) / self.prev_close
-        
+
         if not self.position:
-            # LONG: Gap up with momentum
-            if gap_size > self.gap_threshold and rsi > self.rsi_long_entry and macd > macd_sig:
-                sl_price = price - self.sl_multiplier * atr
-                self.buy(sl=sl_price)
-            
-            # SHORT: Gap down with momentum
-            elif gap_size < -self.gap_threshold and rsi < self.rsi_short_entry and macd < macd_sig:
-                sl_price = price + self.sl_multiplier * atr
-                self.sell(sl=sl_price)
+            result = momentum_signal(
+                price=price,
+                prev_close=self.prev_close,
+                rsi=rsi,
+                macd_line=macd,
+                macd_signal_line=macd_sig,
+                volume=volume,
+                avg_volume=avg_vol,
+                atr=atr,
+                params=MomentumParams(
+                    gap_threshold=self.gap_threshold,
+                    rsi_long_entry=self.rsi_long_entry,
+                    rsi_short_entry=self.rsi_short_entry,
+                    volume_threshold=1.0,   # volume already confirmed above; always passes
+                    sl_multiplier=self.sl_multiplier,
+                ),
+            )
+            if result.direction == 'BUY':
+                self.buy(sl=result.sl_price)
+            elif result.direction == 'SELL':
+                self.sell(sl=result.sl_price)
         else:
             # Exit on momentum exhaustion
             if self.position.is_long and rsi > self.rsi_overbought:
                 self.position.close()
             elif self.position.is_short and rsi < self.rsi_oversold:
                 self.position.close()
-        
-        # Update previous close for next bar
+
         self.prev_close = price
 
 

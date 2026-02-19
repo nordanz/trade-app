@@ -10,6 +10,12 @@ import numpy as np
 import pandas_ta as ta
 from typing import Optional
 
+from services.signal_logic import (
+    MeanReversionParams, mean_reversion_signal,
+    FibonacciParams,     fibonacci_signal,
+    BreakoutParams,      breakout_signal,
+)
+
 
 class BaseSwingTradingStrategy(Strategy):
     """Base class for all swing trading strategies with common multi-day logic"""
@@ -80,47 +86,44 @@ class MeanReversionBBStrategy(BaseSwingTradingStrategy):
         self.rsi = self.I(lambda c: ta.rsi(pd.Series(c), 14).bfill().values, self.data.Close)
     
     def next(self):
-        """Trading logic executed on each bar"""
-        
-        price = self.data.Close[-1]
-        volume = self.data.Volume[-1]
+        """Trading logic executed on each bar."""
+
+        price   = self.data.Close[-1]
+        volume  = self.data.Volume[-1]
         avg_vol = self.avg_volume[-1]
-        rsi = self.rsi[-1]
-        
-        bb_upper = self.bb_upper[-1]
-        bb_middle = self.bb_middle[-1]
-        bb_lower = self.bb_lower[-1]
-        
-        # Volume confirmation
-        vol_confirmed = self.volume_confirmed(volume, avg_vol, self.volume_threshold)
-        
+
         if not self.position:
-            # LONG: Price at lower band + RSI oversold
-            if price <= bb_lower and rsi < self.rsi_oversold and vol_confirmed:
-                sl_price = bb_lower - (bb_middle - bb_lower) * 0.5  # Stop below lower band
-                tp_price = bb_middle  # Target middle band
-                self.buy(sl=sl_price, tp=tp_price)
-            
-            # SHORT: Price at upper band + RSI overbought
-            elif price >= bb_upper and rsi > self.rsi_overbought and vol_confirmed:
-                sl_price = bb_upper + (bb_upper - bb_middle) * 0.5  # Stop above upper band
-                tp_price = bb_middle  # Target middle band
-                self.sell(sl=sl_price, tp=tp_price)
+            result = mean_reversion_signal(
+                price=price,
+                bb_upper=self.bb_upper[-1],
+                bb_middle=self.bb_middle[-1],
+                bb_lower=self.bb_lower[-1],
+                rsi=self.rsi[-1],
+                volume=volume,
+                avg_volume=avg_vol,
+                params=MeanReversionParams(
+                    rsi_oversold=self.rsi_oversold,
+                    rsi_overbought=self.rsi_overbought,
+                    volume_threshold=self.volume_threshold,
+                ),
+            )
+            if result.direction == 'BUY':
+                self.buy(sl=result.sl_price, tp=result.tp_price)
+            elif result.direction == 'SELL':
+                self.sell(sl=result.sl_price, tp=result.tp_price)
         else:
-            # Exit management
+            bb_middle = self.bb_middle[-1]
+            bb_upper  = self.bb_upper[-1]
+            bb_lower  = self.bb_lower[-1]
+            # Take profit near middle band; hard stop if price breaks further
             if self.position.is_long:
-                # Take profit near middle band
                 if price >= bb_middle:
                     self.position.close()
-                # Hard stop if breaks further below lower band
                 elif price < bb_lower * 0.98:
                     self.position.close()
-                    
             elif self.position.is_short:
-                # Take profit near middle band
                 if price <= bb_middle:
                     self.position.close()
-                # Hard stop if breaks further above upper band
                 elif price > bb_upper * 1.02:
                     self.position.close()
 
@@ -184,51 +187,41 @@ class FibonacciRetracementStrategy(BaseSwingTradingStrategy):
         return levels
     
     def next(self):
-        """Trading logic executed on each bar"""
-        
-        price = self.data.Close[-1]
-        volume = self.data.Volume[-1]
+        """Trading logic executed on each bar."""
+
+        price   = self.data.Close[-1]
+        volume  = self.data.Volume[-1]
         avg_vol = self.avg_volume[-1]
-        ema = self.ema[-1]
-        
-        # Determine trend
+        ema     = self.ema[-1]
         is_uptrend = price > ema
-        
-        # Find swing high and low
+
         if len(self.data) >= self.lookback_period:
-            recent_highs = self.data.High[-self.lookback_period:]
-            recent_lows = self.data.Low[-self.lookback_period:]
-            self.swing_high = max(recent_highs)
-            self.swing_low = min(recent_lows)
+            self.swing_high = max(self.data.High[-self.lookback_period:])
+            self.swing_low  = min(self.data.Low[-self.lookback_period:])
         else:
             return
-        
-        # Calculate Fibonacci levels
+
         fib_levels = self.calculate_fib_levels(self.swing_high, self.swing_low, is_uptrend)
-        
-        # Volume confirmation
-        vol_confirmed = self.volume_confirmed(volume, avg_vol, self.volume_threshold)
-        
+
         if not self.position:
-            # LONG: Price at Fib retracement in uptrend
-            if is_uptrend and vol_confirmed:
-                for level in [0.382, 0.5, 0.618]:
-                    fib_price = fib_levels[level]
-                    if abs(price - fib_price) / fib_price < self.entry_tolerance:
-                        sl_price = fib_levels[0.786]  # Stop at 78.6%
-                        tp_price = fib_levels[1.618]  # Target at 1.618 extension
-                        self.buy(sl=sl_price, tp=tp_price)
-                        break
-            
-            # SHORT: Price at Fib retracement in downtrend
-            elif not is_uptrend and vol_confirmed:
-                for level in [0.382, 0.5, 0.618]:
-                    fib_price = fib_levels[level]
-                    if abs(price - fib_price) / fib_price < self.entry_tolerance:
-                        sl_price = fib_levels[0.786]  # Stop at 78.6%
-                        tp_price = fib_levels[1.618]  # Target at 1.618 extension
-                        self.sell(sl=sl_price, tp=tp_price)
-                        break
+            result = fibonacci_signal(
+                price=price,
+                fib_levels=fib_levels,
+                is_uptrend=is_uptrend,
+                volume=volume,
+                avg_volume=avg_vol,
+                params=FibonacciParams(
+                    entry_tolerance=self.entry_tolerance,
+                    volume_threshold=self.volume_threshold,
+                    entry_levels=tuple(self.fib_levels[:3]),   # 0.236, 0.382, 0.5
+                    stop_level=0.786,
+                    target_level=1.618,
+                ),
+            )
+            if result.direction == 'BUY':
+                self.buy(sl=result.sl_price, tp=result.tp_price)
+            elif result.direction == 'SELL':
+                self.sell(sl=result.sl_price, tp=result.tp_price)
         else:
             # Exit if trend reverses
             if self.position.is_long and not is_uptrend:
@@ -277,45 +270,38 @@ class BreakoutTradingStrategy(BaseSwingTradingStrategy):
         self.support = None
     
     def next(self):
-        """Trading logic executed on each bar"""
-        
-        price = self.data.Close[-1]
-        volume = self.data.Volume[-1]
+        """Trading logic executed on each bar."""
+
+        price   = self.data.Close[-1]
+        volume  = self.data.Volume[-1]
         avg_vol = self.avg_volume[-1]
-        adx = self.adx[-1]
-        atr = self.atr[-1]
-        
-        # Identify resistance and support
+        adx     = self.adx[-1]
+
         if len(self.data) >= self.resistance_lookback:
-            recent_highs = self.data.High[-self.resistance_lookback:]
-            recent_lows = self.data.Low[-self.support_lookback:]
-            self.resistance = max(recent_highs)
-            self.support = min(recent_lows)
+            self.resistance = max(self.data.High[-self.resistance_lookback:])
+            self.support    = min(self.data.Low[-self.support_lookback:])
         else:
             return
-        
-        # Volume confirmation
-        vol_confirmed = volume > self.volume_threshold * avg_vol
-        
-        # Trend strength confirmation
-        trend_strong = adx > self.adx_threshold
-        
+
         if not self.position:
-            # LONG: Breakout above resistance
-            if (price > self.resistance * (1 + self.breakout_threshold) and 
-                vol_confirmed and trend_strong):
-                sl_price = self.resistance  # Stop at breakout level
-                risk = price - sl_price
-                tp_price = price + (self.profit_multiplier * risk)
-                self.buy(sl=sl_price, tp=tp_price)
-            
-            # SHORT: Breakdown below support
-            elif (price < self.support * (1 - self.breakout_threshold) and 
-                  vol_confirmed and trend_strong):
-                sl_price = self.support  # Stop at breakdown level
-                risk = sl_price - price
-                tp_price = price - (self.profit_multiplier * risk)
-                self.sell(sl=sl_price, tp=tp_price)
+            result = breakout_signal(
+                price=price,
+                resistance=self.resistance,
+                support=self.support,
+                volume=volume,
+                avg_volume=avg_vol,
+                adx=adx,
+                params=BreakoutParams(
+                    breakout_threshold=self.breakout_threshold,
+                    volume_threshold=self.volume_threshold,
+                    adx_threshold=self.adx_threshold,
+                    profit_multiplier=self.profit_multiplier,
+                ),
+            )
+            if result.direction == 'BUY':
+                self.buy(sl=result.sl_price, tp=result.tp_price)
+            elif result.direction == 'SELL':
+                self.sell(sl=result.sl_price, tp=result.tp_price)
         else:
             # Exit if price reverses back through breakout level
             if self.position.is_long and price < self.resistance:

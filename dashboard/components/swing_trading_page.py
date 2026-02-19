@@ -13,6 +13,7 @@ from services.market_data_service import MarketDataService
 from services.trading_strategy_service import TradingStrategyService
 from services.strategies import SWING_TRADING_STRATEGIES
 from models.trading_signal import SignalType
+from dashboard.components.backtest_widget import render_backtest_panel
 
 
 def render_swing_trading_page(services=None):
@@ -123,6 +124,14 @@ def render_swing_trading_page(services=None):
             if signal:
                 _display_signal(signal, selected_strategy)
                 _display_daily_chart(symbol, period, market_service, signal, selected_strategy)
+                # ── Inline backtest panel ─────────────────────────────────
+                st.divider()
+                render_backtest_panel(
+                    services,
+                    symbol=symbol,
+                    strategy_name=selected_strategy,
+                    key_prefix="swing_",
+                )
             else:
                 st.error(f"❌ Could not generate signal for {symbol}. Please check the symbol and try again.")
     
@@ -165,9 +174,9 @@ def _display_signal(signal, strategy_name: str):
     """Display the trading signal in a nice format."""
     
     # Signal header with color coding
-    if signal.signal_type == SignalType.BUY:
+    if signal.signal == SignalType.BUY:
         st.success("### 🟢 BUY SIGNAL")
-    elif signal.signal_type == SignalType.SELL:
+    elif signal.signal == SignalType.SELL:
         st.error("### 🔴 SELL SIGNAL")
     else:
         st.info("### 🟡 HOLD - No Clear Signal")
@@ -185,12 +194,12 @@ def _display_signal(signal, strategy_name: str):
         st.metric("Stop Loss", f"${signal.stop_loss:.2f}")
     
     with col4:
-        st.metric("Take Profit", f"${signal.take_profit:.2f}")
+        st.metric("Take Profit", f"${signal.target_price:.2f}")
     
     # Risk/Reward calculation
-    if signal.signal_type in [SignalType.BUY, SignalType.SELL]:
+    if signal.signal in [SignalType.BUY, SignalType.SELL]:
         risk = abs(signal.entry_price - signal.stop_loss)
-        reward = abs(signal.take_profit - signal.entry_price)
+        reward = abs(signal.target_price - signal.entry_price)
         risk_reward = reward / risk if risk > 0 else 0
         
         risk_pct = (risk / signal.entry_price) * 100
@@ -313,9 +322,9 @@ def _display_daily_chart(symbol: str, period: str, market_service, signal, strat
                             name='SMA 50', line=dict(color='purple', width=1)))
     
     # Add signal markers
-    if signal.signal_type in [SignalType.BUY, SignalType.SELL]:
-        marker_color = 'green' if signal.signal_type == SignalType.BUY else 'red'
-        marker_symbol = 'triangle-up' if signal.signal_type == SignalType.BUY else 'triangle-down'
+    if signal.signal in [SignalType.BUY, SignalType.SELL]:
+        marker_color = 'green' if signal.signal == SignalType.BUY else 'red'
+        marker_symbol = 'triangle-up' if signal.signal == SignalType.BUY else 'triangle-down'
         
         fig.add_trace(go.Scatter(
             x=[data.index[-1]],
@@ -330,8 +339,8 @@ def _display_daily_chart(symbol: str, period: str, market_service, signal, strat
         # Add stop loss and take profit lines
         fig.add_hline(y=signal.stop_loss, line_dash="dash", line_color="red",
                      annotation_text=f"Stop: ${signal.stop_loss:.2f}", annotation_position="right")
-        fig.add_hline(y=signal.take_profit, line_dash="dash", line_color="green",
-                     annotation_text=f"Target: ${signal.take_profit:.2f}", annotation_position="right")
+        fig.add_hline(y=signal.target_price, line_dash="dash", line_color="green",
+                     annotation_text=f"Target: ${signal.target_price:.2f}", annotation_position="right")
     
     # Volume subplot
     colors = ['red' if close < open else 'green' 
@@ -366,16 +375,16 @@ def _display_watchlist_results(signals: List):
     data = []
     for signal in signals:
         risk = abs(signal.entry_price - signal.stop_loss)
-        reward = abs(signal.take_profit - signal.entry_price)
+        reward = abs(signal.target_price - signal.entry_price)
         rr = reward / risk if risk > 0 else 0
         
         data.append({
             'Symbol': signal.symbol,
-            'Signal': signal.signal_type.value,
+            'Signal': signal.signal.value,
             'Confidence': f"{signal.confidence:.1f}%",
             'Entry': f"${signal.entry_price:.2f}",
             'Stop': f"${signal.stop_loss:.2f}",
-            'Target': f"${signal.take_profit:.2f}",
+            'Target': f"${signal.target_price:.2f}",
             'R:R': f"1:{rr:.1f}",
             'Reasoning': signal.reasoning[:60] + "..." if len(signal.reasoning) > 60 else signal.reasoning
         })
