@@ -30,15 +30,15 @@ from dashboard.components.swing_trading_page import render_swing_trading_page
 from dashboard.components.news_controller_page import render_news_controller_page
 from dashboard.components.beginner_guide_page import render_beginner_guide_page
 
-# Page configuration - centered layout for better mobile experience
+# Page configuration
 st.set_page_config(
-    page_title="Stock Market Dashboard",
+    page_title="eSignal Dashboard",
     page_icon="📈",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for mobile-friendly responsive design
+# Custom CSS
 st.markdown("""
 <style>
     /* Responsive layout */
@@ -48,13 +48,18 @@ st.markdown("""
             padding-right: 1rem;
         }
     }
-    
+
+    /* Reduce default top padding */
+    .block-container {
+        padding-top: 1.5rem;
+    }
+
     /* Typography */
     .big-font {
         font-size: 24px !important;
         font-weight: bold;
     }
-    
+
     /* Cards */
     .metric-card {
         background-color: #f0f2f6;
@@ -62,28 +67,34 @@ st.markdown("""
         border-radius: 10px;
         margin: 10px 0;
     }
-    
+
     /* Colors */
-    .positive {
-        color: #00ff00;
+    .positive { color: #00c853; }
+    .negative { color: #d32f2f; }
+
+    .stAlert { margin-top: 10px; }
+
+    /* Active nav button */
+    .nav-active > button {
+        background-color: #0e4d92 !important;
+        color: white !important;
+        font-weight: bold !important;
+        border-left: 4px solid #4fc3f7 !important;
     }
-    
-    .negative {
-        color: #ff0000;
+
+    /* Nav button hover */
+    .stButton > button:hover {
+        border-color: #4fc3f7;
     }
-    
-    .stAlert {
-        margin-top: 10px;
-    }
-    
-    /* Improve button appearance on mobile */
-    .stButton > button {
-        width: 100%;
-    }
-    
-    /* Sidebar styling */
-    .css-1d391kg {
-        padding: 1rem;
+
+    /* Sidebar section labels */
+    .sidebar-section {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #888;
+        margin: 0.8rem 0 0.3rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -129,101 +140,142 @@ if st.session_state.get('auto_refresh', True):
 
 # Sidebar navigation and controls
 with st.sidebar:
-    st.title("� Trading Dashboard")
-    
+    st.title("📈 eSignal")
+
     # Market status
     market_status = services['market'].get_market_status()
     status_emoji = "🟢" if market_status.get('is_open') else "🔴"
-    st.info(f"{status_emoji} Market: {market_status.get('market_state', 'UNKNOWN')}")
-    
-    st.markdown("---")
-    
-    # Main Navigation Menu
-    st.subheader("📍 Navigation")
-    
-    menu_pages = {
-        "Market Overview": "📊 Market Overview",
-        "My Portfolio": "💼 My Portfolio",
-        "Backtest": "🧪 Backtest",
-        "AI News & Analysis": "📰 AI News & Analysis",
-        "Trading Signals": "🎯 Trading Signals",
-        "Detailed Charts": "📈 Detailed Charts",
-        "Day Trading": "📈 Day Trading",
-        "Swing Trading": "🌊 Swing Trading",
-        "News Controller": "📰 News Controller",
-        "Beginner's Guide": "📚 Beginner's Guide"
+    st.caption(f"{status_emoji} Market: **{market_status.get('market_state', 'UNKNOWN')}**")
+
+    st.divider()
+
+    # ── Grouped Navigation ────────────────────────────────────────────────────
+    current = st.session_state.current_page
+
+    nav_groups = {
+        "MARKET": {
+            "Market Overview": "📊 Market Overview",
+            "Detailed Charts": "� Charts",
+        },
+        "TRADING": {
+            "Trading Signals": "🎯 Signals",
+            "Day Trading":     "⚡ Day Trading",
+            "Swing Trading":   "🌊 Swing Trading",
+        },
+        "RESEARCH": {
+            "AI News & Analysis": "🤖 AI News",
+            "News Controller":    "🎛️ News Settings",
+        },
+        "ACCOUNT": {
+            "My Portfolio": "💼 Portfolio",
+            "Backtest":     "🧪 Backtest",
+        },
+        "HELP": {
+            "Beginner's Guide": "📚 Beginner's Guide",
+        },
     }
-    
-    for key, label in menu_pages.items():
-        if st.button(label, key=f"nav_{key}", use_container_width=True):
-            st.session_state.current_page = key
-            st.rerun()
-    
-    st.markdown("---")
-    
-    # Watchlist management
-    st.subheader("📋 Watchlist")
-    
+
+    for group_label, pages in nav_groups.items():
+        st.markdown(f"<p class='sidebar-section'>{group_label}</p>", unsafe_allow_html=True)
+        for key, label in pages.items():
+            is_active = current == key
+            container = st.container()
+            if is_active:
+                container.markdown("<span class='nav-active'>", unsafe_allow_html=True)
+            if container.button(
+                f"{'▶ ' if is_active else ''}{label}",
+                key=f"nav_{key}",
+                use_container_width=True,
+            ):
+                st.session_state.current_page = key
+                st.rerun()
+            if is_active:
+                container.markdown("</span>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Watchlist ─────────────────────────────────────────────────────────────
+    st.markdown("<p class='sidebar-section'>WATCHLIST</p>", unsafe_allow_html=True)
+
     # Add new ticker
-    new_ticker = st.text_input(
-        "Add Ticker:",
-        placeholder="e.g., AAPL",
-        key="sidebar_add_ticker_input"
-    ).upper()
-    if st.button("➕ Add", key="sidebar_add_ticker_btn", use_container_width=True):
+    col_input, col_btn = st.columns([3, 1])
+    with col_input:
+        new_ticker = st.text_input(
+            "Ticker",
+            placeholder="e.g. AAPL",
+            label_visibility="collapsed",
+            key="sidebar_add_ticker_input",
+        ).upper()
+    with col_btn:
+        st.write("")  # vertical alignment nudge
+        add_clicked = st.button("＋", key="sidebar_add_ticker_btn", use_container_width=True)
+
+    if add_clicked:
         if new_ticker:
             added = services['portfolio'].add_to_watchlist(new_ticker)
             if added:
                 st.session_state.watchlist = services['portfolio'].get_watchlist()
-                st.success(f"Added {new_ticker}")
                 st.rerun()
             else:
-                st.warning(f"{new_ticker} is already in your watchlist")
+                st.warning(f"{new_ticker} already in watchlist")
         else:
-            st.warning("Please enter a ticker symbol")
-    
-    # Display watchlist
-    st.markdown("**Current Watchlist:**")
+            st.warning("Enter a ticker symbol")
+
+    # Watchlist items
     for ticker in st.session_state.watchlist:
-        col1, col2 = st.columns([3, 1])
+        col1, col2 = st.columns([4, 1])
         with col1:
-            if st.button(f"• {ticker}", key=f"select_{ticker}", use_container_width=True):
+            is_selected = ticker == st.session_state.selected_symbol
+            label = f"**{ticker}**" if is_selected else ticker
+            if st.button(label, key=f"select_{ticker}", use_container_width=True):
                 st.session_state.selected_symbol = ticker
         with col2:
-            if st.button("❌", key=f"remove_{ticker}"):
+            if st.button("✕", key=f"remove_{ticker}"):
                 services['portfolio'].remove_from_watchlist(ticker)
                 st.session_state.watchlist = services['portfolio'].get_watchlist()
                 st.rerun()
-    
-    st.markdown("---")
-    
-    # Settings
-    st.subheader("⚙️ Settings")
+
+    st.divider()
+
+    # ── Settings ──────────────────────────────────────────────────────────────
+    st.markdown("<p class='sidebar-section'>SETTINGS</p>", unsafe_allow_html=True)
     auto_refresh = st.checkbox(
         "Auto-refresh",
         value=st.session_state.auto_refresh,
-        key="sidebar_auto_refresh_checkbox"
+        key="sidebar_auto_refresh_checkbox",
     )
     st.session_state.auto_refresh = auto_refresh
-    
-    if st.button("🔄 Refresh Now", key="sidebar_refresh_btn", use_container_width=True):
-        st.rerun()
-    
-    st.markdown("---")
-    st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
 
-# Main content area
-st.title("📈 Stock Market Dashboard with AI")
-st.markdown("**Live market data • AI-powered insights • Swing trading recommendations**")
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        if st.button("🔄 Refresh", key="sidebar_refresh_btn", use_container_width=True):
+            st.rerun()
+    with col_r2:
+        st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
 
-# Check if Gemini is configured
-if not services['gemini'].is_available():
-    st.warning("⚠️ Gemini AI not configured. Set GEMINI_API_KEY in .env file for AI features.")
-
-st.markdown("---")
-
-# Route to current page
+# ── Top status bar (replaces the heavy title block) ──────────────────────────
 page = st.session_state.current_page
+_page_title = {
+    "Market Overview":    "📊 Market Overview",
+    "My Portfolio":       "� My Portfolio",
+    "Backtest":           "🧪 Backtest",
+    "AI News & Analysis": "🤖 AI News & Analysis",
+    "Trading Signals":    "🎯 Trading Signals",
+    "Detailed Charts":    "📈 Detailed Charts",
+    "Day Trading":        "⚡ Day Trading",
+    "Swing Trading":      "🌊 Swing Trading",
+    "News Controller":    "🎛️ News Controller",
+    "Beginner's Guide":   "📚 Beginner's Guide",
+}.get(page, page)
+
+col_title, col_warn = st.columns([3, 2])
+with col_title:
+    st.markdown(f"## {_page_title}")
+with col_warn:
+    if not services['gemini'].is_available():
+        st.warning("⚠️ Gemini AI not configured — set GEMINI_API_KEY in .env")
+
+st.divider()
 
 if page == "Market Overview":
     render_market_overview(services, st.session_state.watchlist)

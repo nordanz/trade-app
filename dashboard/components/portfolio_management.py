@@ -8,7 +8,6 @@ from utils.helpers import format_price, format_percentage
 
 def render_portfolio_management(services):
     """Render the Portfolio Management tab."""
-    st.header("💼 My Portfolio")
 
     tab_holdings, tab_watchlist, tab_history = st.tabs(
         ["📋 Holdings", "👁️ Watchlist", "📜 Transaction History"]

@@ -19,12 +19,6 @@ from dashboard.components.backtest_widget import render_backtest_panel
 def render_swing_trading_page(services=None):
     """Render the swing trading interface."""
     
-    st.header("🌊 Swing Trading - Multi-Day Strategies")
-    st.markdown("""
-    Swing trading strategies for positions held 3-7 days (or longer).
-    Focus on daily charts and trend-following or mean reversion.
-    """)
-    
     # Use shared services or create new ones as fallback
     if services:
         market_service = services['market']
@@ -120,20 +114,31 @@ def render_swing_trading_page(services=None):
                 timeframe='1d',
                 include_news=include_news
             )
-            
             if signal:
-                _display_signal(signal, selected_strategy)
-                _display_daily_chart(symbol, period, market_service, signal, selected_strategy)
-                # ── Inline backtest panel ─────────────────────────────────
-                st.divider()
-                render_backtest_panel(
-                    services,
-                    symbol=symbol,
-                    strategy_name=selected_strategy,
-                    key_prefix="swing_",
-                )
+                st.session_state['swing_trading_signal'] = signal
+                st.session_state['swing_trading_signal_symbol'] = symbol
+                st.session_state['swing_trading_signal_strategy'] = selected_strategy
+                st.session_state['swing_trading_signal_period'] = period
             else:
+                st.session_state.pop('swing_trading_signal', None)
                 st.error(f"❌ Could not generate signal for {symbol}. Please check the symbol and try again.")
+
+    # Display persisted signal (survives reruns / auto-refresh)
+    if 'swing_trading_signal' in st.session_state:
+        cached_signal = st.session_state['swing_trading_signal']
+        cached_symbol = st.session_state.get('swing_trading_signal_symbol', symbol)
+        cached_strategy = st.session_state.get('swing_trading_signal_strategy', selected_strategy)
+        cached_period = st.session_state.get('swing_trading_signal_period', period)
+        _display_signal(cached_signal, cached_strategy)
+        _display_daily_chart(cached_symbol, cached_period, market_service, cached_signal, cached_strategy)
+        # ── Inline backtest panel ─────────────────────────────────
+        st.divider()
+        render_backtest_panel(
+            services,
+            symbol=cached_symbol,
+            strategy_name=cached_strategy,
+            key_prefix="swing_",
+        )
     
     # Watchlist scanner
     st.divider()
@@ -162,12 +167,19 @@ def render_swing_trading_page(services=None):
                 timeframe='1d',
                 min_confidence=min_confidence
             )
-            
             if signals:
-                st.success(f"✅ Found {len(signals)} signals above {min_confidence}% confidence")
-                _display_watchlist_results(signals)
+                st.session_state['swing_trading_scan_signals'] = signals
+                st.session_state['swing_trading_scan_confidence'] = min_confidence
             else:
+                st.session_state.pop('swing_trading_scan_signals', None)
                 st.warning(f"⚠️ No signals found above {min_confidence}% confidence")
+
+    # Display persisted scan results (survives reruns / auto-refresh)
+    if 'swing_trading_scan_signals' in st.session_state:
+        cached_signals = st.session_state['swing_trading_scan_signals']
+        cached_conf = st.session_state.get('swing_trading_scan_confidence', min_confidence)
+        st.success(f"✅ Found {len(cached_signals)} signals above {cached_conf}% confidence")
+        _display_watchlist_results(cached_signals)
 
 
 def _display_signal(signal, strategy_name: str):

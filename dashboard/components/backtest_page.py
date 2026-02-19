@@ -24,12 +24,9 @@ _SWING_STRATEGY_KEYS = list(SWING_TRADING_STRATEGIES.keys())
 
 def render_backtest_page(services, watchlist):
     """Render the full-page Backtest tab."""
-
-    st.header("🧪 Backtest & Strategy Comparison")
-    st.info(
-        "Run a single strategy deep-dive **or** compare all strategies side-by-side "
-        "on the same historical data. For quick in-context backtests, use the "
-        "**🧪 Backtest** panel on the Day Trading or Swing Trading pages."
+    st.caption(
+        "Deep-dive a single strategy or compare all strategies side-by-side. "
+        "For quick in-context backtests use the **🧪 Backtest** panel on the Day/Swing Trading pages."
     )
 
     if 'backtest' not in services:

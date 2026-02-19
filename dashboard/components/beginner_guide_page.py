@@ -8,8 +8,6 @@ import streamlit as st
 
 def render_beginner_guide_page():
     """Render the beginner's guide as an interactive in-app tab."""
-
-    st.header("📚 Beginner's Guide to Trading")
     st.markdown(
         "New to trading? Start here. This guide covers everything you need to "
         "understand the strategies and signals in this dashboard."

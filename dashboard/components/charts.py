@@ -8,7 +8,6 @@ from utils.helpers import format_price
 
 def render_detailed_charts(services, watchlist):
     """Render the Detailed Charts tab."""
-    st.header("📈 Detailed Price Charts")
     
     if not watchlist:
         st.info("Add stocks to your watchlist to see charts")

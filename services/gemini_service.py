@@ -10,7 +10,7 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = "gemini-pro"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 
 
 class GeminiService:

@@ -17,12 +17,6 @@ from config.settings import settings
 def render_news_controller_page(services=None):
     """Render the news controller interface."""
     
-    st.header("📰 News Impact Controller")
-    st.markdown("""
-    Manage news sentiment parameters, macro events, and signal overrides.
-    Control how news affects your trading signals.
-    """)
-    
     # Use shared services or create new ones as fallback
     if services:
         market_service = services['market']
@@ -133,15 +127,21 @@ def render_news_controller_page(services=None):
                             symbol,
                             company_info.get('name', symbol)
                         )
-                        
                         if news_analysis:
-                            _display_news_analysis(news_analysis, symbol)
+                            st.session_state['nc_news_analysis'] = news_analysis
+                            st.session_state['nc_news_symbol'] = symbol
                         else:
+                            st.session_state.pop('nc_news_analysis', None)
                             st.warning("No news analysis available")
                     else:
                         st.error("Gemini service not available. Check API key in .env")
                 except Exception as e:
                     st.error(f"Error analyzing news: {str(e)}")
+
+        # Display persisted result (survives reruns / auto-refresh)
+        if 'nc_news_analysis' in st.session_state:
+            st.caption(f"Showing analysis for **{st.session_state.get('nc_news_symbol', '')}**")
+            _display_news_analysis(st.session_state['nc_news_analysis'], st.session_state.get('nc_news_symbol', symbol))
     
     # ===== TAB 3: Macro Events =====
     with tab3:

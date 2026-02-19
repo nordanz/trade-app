@@ -27,7 +27,6 @@ _SWING_STRATEGY_KEYS = list(SWING_TRADING_STRATEGIES.keys())
 
 def render_trading_signals(services, watchlist=None):
     """Render the Trading Signals tab."""
-    st.header("🎯 Trading Signals")
 
     # ── Strategy selector ────────────────────────────────────────────────────
     col_type, col_strat = st.columns(2)
@@ -48,11 +47,7 @@ def render_trading_signals(services, watchlist=None):
         )
 
     if strategy_type == "Day Trading":
-        st.warning(
-            "⚠️ **Data is delayed ~15 minutes** (standard Yahoo Finance feed). "
-            "Intraday signals are for **research and screening only** — "
-            "do not use them as live execution signals without a real-time data source."
-        )
+        st.caption("⚠️ Data delayed ~15 min (Yahoo Finance). For research only — not live execution.")
 
     st.divider()
 
@@ -77,15 +72,35 @@ def render_trading_signals(services, watchlist=None):
             return
 
     # ── Generate signals ─────────────────────────────────────────────────────
-    with st.spinner(f"Analyzing {len(symbols_to_analyze)} symbol(s) with "
-                    f"{_STRATEGY_LABELS.get(selected_strategy, selected_strategy)}…"):
-        signals = services['strategy'].get_signals_for_multiple_stocks(
-            symbols_to_analyze,
-            strategy_name=selected_strategy,
-        )
+    # Detect if key inputs changed so we can invalidate the cache automatically
+    _cache_key = f"{selected_strategy}|{','.join(sorted(symbols_to_analyze))}"
+    _stale = st.session_state.get('ts_cache_key') != _cache_key
 
+    run_btn = st.button(
+        "🔍 Generate Signals",
+        type="primary",
+        use_container_width=True,
+        key="ts_run_btn",
+    )
+
+    if run_btn or _stale:
+        with st.spinner(f"Analyzing {len(symbols_to_analyze)} symbol(s) with "
+                        f"{_STRATEGY_LABELS.get(selected_strategy, selected_strategy)}…"):
+            signals = services['strategy'].get_signals_for_multiple_stocks(
+                symbols_to_analyze,
+                strategy_name=selected_strategy,
+            )
+        if signals:
+            st.session_state['ts_signals'] = signals
+            st.session_state['ts_cache_key'] = _cache_key
+        else:
+            st.session_state.pop('ts_signals', None)
+            st.warning("Unable to generate signals. Please try again.")
+            return
+
+    signals = st.session_state.get('ts_signals')
     if not signals:
-        st.warning("Unable to generate signals. Please try again.")
+        st.info("Click **Generate Signals** to analyse your watchlist.")
         return
 
     portfolio_positions = {p['symbol']: p for p in services['portfolio'].get_all_positions()}
