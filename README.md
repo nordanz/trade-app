@@ -52,20 +52,44 @@ Every signal goes through three layers:
 
 ### Installation
 
+**Option 1: Quick Setup (Recommended)**
+
 1. Clone the repository:
 ```bash
-cd /Users/danial/workspaces/esignal
+git clone <repository-url>
+cd esignal
+```
+
+2. Run the setup script:
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY
+```
+
+**Option 2: Manual Installation**
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd esignal
 ```
 
 2. Create a virtual environment:
 ```bash
 python3 -m venv venv
 source venv/bin/activate  # On macOS/Linux
+# or: venv\Scripts\activate  # On Windows
 ```
 
-3. Install dependencies:
+3. Install the package:
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 4. Set up environment variables:
@@ -76,6 +100,12 @@ cp .env.example .env
 
 ### Running the Dashboard
 
+**Using the CLI command (after installation):**
+```bash
+esignal
+```
+
+**Or manually with Streamlit:**
 ```bash
 streamlit run dashboard/app.py
 ```
